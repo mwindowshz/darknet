@@ -13,7 +13,7 @@
 #include "opencv2/core/version.hpp"
 #ifndef CV_VERSION_EPOCH
 #include "opencv2/videoio/videoio_c.h"
-#pragma comment(lib, "opencv_world320.lib")  
+#pragma comment(lib, "opencv_world330.lib")  
 #else
 #pragma comment(lib, "opencv_core2413.lib")  
 #pragma comment(lib, "opencv_imgproc2413.lib")  
@@ -448,6 +448,148 @@ void validate_detector_recall(char *datacfg, char *cfgfile, char *weightfile)
         free_image(sized);
     }
 }
+void validate_detector_recall_p(char *datacfg, char *cfgfile, char *weightfile)
+{
+	network net = parse_network_cfg(cfgfile);
+	if (weightfile) {
+		load_weights(&net, weightfile);
+	}
+	set_batch_network(&net, 1);
+	fprintf(stderr, "Learning Rate: %g, Momentum: %g, Decay: %g\n", net.learning_rate, net.momentum, net.decay);
+	srand(time(0));
+
+	list *options = read_data_cfg(datacfg);
+	char *valid_images = option_find_str(options, "valid", "data/train.txt");
+	list *plist = get_paths(valid_images);
+	char **paths = (char **)list_to_array(plist);
+	image **alphabet = load_alphabet();
+	char *name_list = option_find_str(options, "names", "data/names.list");
+	char **names = get_labels(name_list);
+
+	layer l = net.layers[net.n - 1];
+	int classes = l.classes;
+
+	int j, k;
+	box *boxes = calloc(l.w*l.h*l.n, sizeof(box));
+	float **probs = calloc(l.w*l.h*l.n, sizeof(float *));
+	for (j = 0; j < l.w*l.h*l.n; ++j) probs[j] = calloc(classes, sizeof(float *));
+
+	int m = plist->size;
+	int i = 0;
+
+	float thresh = .2;// .001;
+	float iou_thresh = .5;
+	float nms = .4;
+
+	int total = 0;
+	int correct = 0;
+	int proposals = 0;
+	float avg_iou = 0;
+	
+	float tot_recall = 0;
+	float tot_percision = 0;
+	//run over all images
+	for (i = 0; i < m; ++i) {
+		//reset all counters:
+		proposals = 0;
+		total = 0;
+		correct = 0;
+
+		char *path = paths[i];
+		image orig = load_image_color(path, 0, 0);
+		
+		image sized = resize_image(orig, net.w, net.h);
+		char *id = basecfg(path);
+		network_predict(net, sized.data);
+		get_region_boxes(l, 1, 1, thresh, probs, boxes, 0, 0);// 1, 0);
+		//if (nms) do_nms(boxes, probs, l.w*l.h*l.n, 1, nms); //need to understand diffrence between 2 nms options but this changed all the arrangement of probs
+		if (nms) do_nms_sort(boxes, probs, l.w*l.h*l.n, l.classes, nms);
+		
+		//draw_detections(orig, l.w*l.h*l.n, thresh, boxes, probs, names, alphabet, l.classes);
+		//show_image(orig, "predictions");
+		
+		char labelpath[4096];
+		find_replace(path, "images", "labels", labelpath);
+		find_replace(labelpath, "JPEGImages", "labels", labelpath);
+		find_replace(labelpath, ".jpg", ".txt", labelpath);
+		find_replace(labelpath, ".JPEG", ".txt", labelpath);
+		find_replace(labelpath, ".png", ".txt", labelpath);
+
+		int num_labels = 0;//number of boxes in ground truth, 
+		box_label *truth = read_boxes(labelpath, &num_labels);
+
+		for (k = 0; k < l.w*l.h*l.n; ++k) {
+			//if (probs[k][0] > thresh) {
+			int classID = max_index(probs[k], classes);
+			if (probs[k][classID] > thresh) {
+				++proposals;				
+
+			}
+		}
+
+		typedef struct
+		{
+			int truthID;
+			int classID;
+			float iou;
+
+
+		}DataSaver;
+		DataSaver *pDataSaver = calloc(proposals, sizeof(DataSaver));
+
+		int indexInSaver = 0;
+		
+		
+		//get the boxes with predictions, and also class for each box then save the matching data between groundtruth and the predictions
+		avg_iou = 0;
+		for (j = 0; j < num_labels; ++j) {
+			++total;
+			box t = { truth[j].x, truth[j].y, truth[j].w, truth[j].h };
+			float best_iou = 0;
+			for (k = 0; k < l.w*l.h*l.n; ++k) {
+				float iou = box_iou(boxes[k], t);
+				int classID = max_index(probs[k], classes);
+
+				if (probs[k][classID] > thresh && iou > best_iou) {
+					best_iou = iou;
+					pDataSaver[indexInSaver].classID = classID;
+
+				}
+			}
+			
+			if (best_iou > iou_thresh) {
+				++correct;
+				if (indexInSaver < proposals)
+				{
+					pDataSaver[indexInSaver].iou = best_iou;
+					pDataSaver[indexInSaver].truthID = truth[j].id;
+					indexInSaver++;
+				}
+				else
+					fprintf(stderr, "take care of indexing of dataSaver!\n");
+				avg_iou += best_iou;
+			}
+		}
+		for (int p = 0; p < proposals; p++)
+		{
+
+			fprintf(stderr, "IMAGE ID:%3d, classCorrect:%3d,\t iou%.2f\n", i, (pDataSaver[p].classID == pDataSaver[p].truthID), pDataSaver[p].iou*100);
+		}
+		//Precision - number of correct results divided by the number of all returned results - correct/proposals
+		//Recall -  number of correct results divided by the number of results that should have been returned - correct/total (total is also num_labels!)
+		fprintf(stderr, "image:%3d proposedBx:%3d correctBx:%3d gTruthBx%3d\tAvgIOU: %.2f%%\tRecall:%.2f%%\tPrecision:%.2f%%\n", i, proposals,correct, total, avg_iou * 100 / correct, 100.*correct / total,100.*correct/proposals);
+		//fprintf(stderr, "image:%5d correctBx:%5d totalBx%5d\tRPs/Img: %.2f\tIOU: %.2f%%\tRecall:%.2f%%\n", i, correct, total, (float)proposals / (i + 1), avg_iou * 100 / total, 100.*correct / total);
+		tot_recall += 100.*correct / total;
+		tot_percision += 100.*correct / proposals;
+		free(id);
+		free_image(orig);
+		free_image(sized);
+		free(pDataSaver);
+	}
+	float avg_recall = tot_recall / m;
+	float avg_precision = tot_percision / m;
+	fprintf(stderr, "\n----------------\n\nTotal Images:%5d, avg_recall:%.2f\t avg_Precision:%.2f\n", m, avg_recall, avg_precision);
+}
 
 void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filename, float thresh)
 {
@@ -551,6 +693,7 @@ void run_detector(int argc, char **argv)
     else if(0==strcmp(argv[2], "train")) train_detector(datacfg, cfg, weights, gpus, ngpus, clear);
     else if(0==strcmp(argv[2], "valid")) validate_detector(datacfg, cfg, weights);
     else if(0==strcmp(argv[2], "recall")) validate_detector_recall(datacfg, cfg, weights);
+	else if (0 == strcmp(argv[2], "recall_p")) validate_detector_recall_p(datacfg, cfg, weights);
     else if(0==strcmp(argv[2], "demo")) {
         list *options = read_data_cfg(datacfg);
         int classes = option_find_int(options, "classes", 20);
