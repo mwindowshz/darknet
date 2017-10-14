@@ -573,7 +573,7 @@ void validate_detector_recall_p(char *datacfg, char *cfgfile, char *weightfile)
 		for (int p = 0; p < proposals; p++)
 		{
 
-			fprintf(stderr, "IMAGE ID:%3d, classCorrect:%3d,\t iou%.2f\n", i, (pDataSaver[p].classID == pDataSaver[p].truthID), pDataSaver[p].iou*100);
+			fprintf(stderr, "IMAGE ID:%3d, classCorrect:%3d,\t IoU:%.2f%%\n", i, (pDataSaver[p].classID == pDataSaver[p].truthID), pDataSaver[p].iou*100);
 		}
 		//Precision - number of correct results divided by the number of all returned results - correct/proposals
 		//Recall -  number of correct results divided by the number of results that should have been returned - correct/total (total is also num_labels!)
