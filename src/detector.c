@@ -498,6 +498,8 @@ void validate_detector_recall_p(char *datacfg, char *cfgfile, char *weightfile)
 	DataSaver *pDataSaver = calloc(sizeOfDataSaver, sizeof(DataSaver));
 	float tot_recall = 0;
 	float tot_percision = 0;
+	float tot_iou = 0;
+	int total_truth_boxes = 0;
 	//run over all images
 	for (i = 0; i < m; ++i) {
 		//reset all counters:
@@ -513,7 +515,7 @@ void validate_detector_recall_p(char *datacfg, char *cfgfile, char *weightfile)
 		char *id = basecfg(path);
 		network_predict(net, sized.data);
 		get_region_boxes(l, 1, 1, thresh, probs, boxes, 0, 0);// 1, 0);
-		//if (nms) do_nms(boxes, probs, l.w*l.h*l.n, 1, nms); //need to understand diffrence between 2 nms options but this changed all the arrangement of probs
+															  //if (nms) do_nms(boxes, probs, l.w*l.h*l.n, 1, nms); //need to understand diffrence between 2 nms options but this changed all the arrangement of probs
 		if (nms) do_nms_sort(boxes, probs, l.w*l.h*l.n, l.classes, nms);
 
 		//draw_detections(orig, l.w*l.h*l.n, thresh, boxes, probs, names, alphabet, l.classes);
@@ -547,6 +549,7 @@ void validate_detector_recall_p(char *datacfg, char *cfgfile, char *weightfile)
 		avg_iou = 0;
 		for (j = 0; j < num_labels; ++j) {
 			++total;
+			total_truth_boxes++;
 			box t = { truth[j].x, truth[j].y, truth[j].w, truth[j].h };
 			if (indexInSaver < sizeOfDataSaver)
 				pDataSaver[indexInSaver].truthID = truth[j].id;
@@ -562,13 +565,13 @@ void validate_detector_recall_p(char *datacfg, char *cfgfile, char *weightfile)
 
 				}
 			}
-
+			tot_iou += best_iou; // sum all IOU values found
 			if (best_iou > iou_thresh) {
 				++correct;
 				if (indexInSaver < sizeOfDataSaver)
 				{
 					pDataSaver[indexInSaver].iou = best_iou;
-					
+					//pDataSaver[indexInSaver].truthID = truth[j].id;
 					indexInSaver++;
 				}
 				else
@@ -588,7 +591,7 @@ void validate_detector_recall_p(char *datacfg, char *cfgfile, char *weightfile)
 			correct >0 ? (avg_iou * 100 / correct) : avg_iou,
 			total>0 ? (100.*correct / total) : -1,
 			proposals>0 ? (100.*correct / proposals) : -1);
-		
+		//fprintf(stderr, "image:%5d correctBx:%5d totalBx%5d\tRPs/Img: %.2f\tIOU: %.2f%%\tRecall:%.2f%%\n", i, correct, total, (float)proposals / (i + 1), avg_iou * 100 / total, 100.*correct / total);
 		tot_recall += (total >0) ? 100.*correct / total : 0;
 		tot_percision += proposals>0 ? 100.*correct / proposals : 0;
 
@@ -597,13 +600,13 @@ void validate_detector_recall_p(char *datacfg, char *cfgfile, char *weightfile)
 		free_image(sized);
 
 	}
-	
+
 	float avg_recall = tot_recall / m;
 	float avg_precision = tot_percision / m;
-	fprintf(stderr, "\n----------------\n\nTotal Images:%5d, avg_recall:%.2f\t avg_Precision:%.2f \n tot_recall%.2f\t tot_percision:%.2f\n", m, avg_recall, avg_precision, tot_recall, tot_percision);
+	float average_iou = 100.*tot_iou / total_truth_boxes;
+	fprintf(stderr, "\n----------------\n\nTotal Images:%5d, avg_recall:%.2f\t avg_Precision:%.2f\t avg_IoU:%.2f \n tot_recall%.2f\t tot_percision:%.2f tot_iou%.2f total_truth_boxes:%d\n", m, avg_recall, avg_precision, average_iou, tot_recall, tot_percision, tot_iou, total_truth_boxes);
 
 	free(pDataSaver);
-
 }
 
 void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filename, float thresh)
