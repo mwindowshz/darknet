@@ -22,3 +22,6 @@ ehthumbs.db
 Icon?
 Thumbs.db
 *.swp
+/src/detector.c.bak
+*.bak
+/src/detector.c.bak
