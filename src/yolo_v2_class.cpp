@@ -54,7 +54,7 @@ YOLODLL_API Detector::Detector(std::string cfg_filename, std::string weight_file
 	char *cfgfile = const_cast<char *>(cfg_filename.data());
 	char *weightfile = const_cast<char *>(weight_filename.data());
 
-	net = parse_network_cfg(cfgfile);
+	net = parse_network_cfg_custom(cfgfile, 1);
 	if (weightfile) {
 		load_weights(&net, weightfile);
 	}
@@ -109,11 +109,11 @@ YOLODLL_API Detector::~Detector()
 #endif
 }
 
-YOLODLL_API int Detector::get_net_width() {
+YOLODLL_API int Detector::get_net_width() const {
 	detector_gpu_t &detector_gpu = *reinterpret_cast<detector_gpu_t *>(detector_gpu_ptr.get());
 	return detector_gpu.net.w;
 }
-YOLODLL_API int Detector::get_net_height() {
+YOLODLL_API int Detector::get_net_height() const {
 	detector_gpu_t &detector_gpu = *reinterpret_cast<detector_gpu_t *>(detector_gpu_ptr.get());
 	return detector_gpu.net.h;
 }

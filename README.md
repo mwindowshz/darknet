@@ -1,5 +1,7 @@
 # Yolo-v2 Windows and Linux version
 
+[![CircleCI](https://circleci.com/gh/AlexeyAB/darknet.svg?style=svg)](https://circleci.com/gh/AlexeyAB/darknet)
+
 1. [How to use](#how-to-use)
 2. [How to compile on Linux](#how-to-compile-on-linux)
 3. [How to compile on Windows](#how-to-compile-on-windows)
@@ -8,7 +10,8 @@
 6. [When should I stop training](#when-should-i-stop-training)
 7. [How to improve object detection](#how-to-improve-object-detection)
 8. [How to mark bounded boxes of objects and create annotation files](#how-to-mark-bounded-boxes-of-objects-and-create-annotation-files)
-9. [How to use Yolo as DLL](#how-to-use-yolo-as-dll)
+9. [Using Yolo9000](#using-yolo9000)
+10. [How to use Yolo as DLL](#how-to-use-yolo-as-dll)
 
 |  ![Darknet Logo](http://pjreddie.com/media/files/darknet-black-small.png) | &nbsp; ![map_fps](https://hsto.org/files/a24/21e/068/a2421e0689fb43f08584de9d44c2215f.jpg) https://arxiv.org/abs/1612.08242 |
 |---|---|
@@ -38,6 +41,7 @@ This repository supports:
 * **OpenCV 3.x**: https://sourceforge.net/projects/opencvlibrary/files/opencv-win/3.2.0/opencv-3.2.0-vc14.exe/download
 * **or OpenCV 2.4.13**: https://sourceforge.net/projects/opencvlibrary/files/opencv-win/2.4.13/opencv-2.4.13.2-vc14.exe/download
   - OpenCV allows to show image or video detection in the window and store result to file that specified in command line `-out_filename res.avi`
+* **GPU with CC >= 2.0** if you use CUDA, or **GPU CC >= 3.0** if you use cuDNN + CUDA: https://en.wikipedia.org/wiki/CUDA#GPUs_supported
 
 ##### Pre-trained models for different cfg-files can be downloaded from (smaller -> faster & lower quality):
 * `yolo.cfg` (194 MB COCO-model) - require 4 GB GPU-RAM: http://pjreddie.com/media/files/yolo.weights
@@ -86,6 +90,9 @@ On Linux use `./darknet` instead of `darknet.exe`, like this:`./darknet detector
 * 194 MB VOC-model - WebCamera #0: `darknet.exe detector demo data/voc.data yolo-voc.cfg yolo-voc.weights -c 0`
 * 186 MB Yolo9000 - image: `darknet.exe detector test cfg/combine9k.data yolo9000.cfg yolo9000.weights`
 * 186 MB Yolo9000 - video: `darknet.exe detector demo cfg/combine9k.data yolo9000.cfg yolo9000.weights test.mp4`
+* To process a list of images `image_list.txt` and save results of detection to `result.txt` use:                             
+    `darknet.exe detector test data/voc.data yolo-voc.cfg yolo-voc.weights < image_list.txt > result.txt`
+    You can comment this line so that each image does not require pressing the button ESC: https://github.com/AlexeyAB/darknet/blob/6ccb41808caf753feea58ca9df79d6367dedc434/src/detector.c#L509
 
 ##### For using network video-camera mjpeg-stream with any Android smartphone:
 
@@ -107,12 +114,12 @@ On Linux use `./darknet` instead of `darknet.exe`, like this:`./darknet detector
 
 Just do `make` in the darknet directory.
 Before make, you can set such options in the `Makefile`: [link](https://github.com/AlexeyAB/darknet/blob/9c1b9a2cf6363546c152251be578a21f3c3caec6/Makefile#L1)
-* `GPU=1` to build with CUDA to accelerate by using GPU (CUDA should be in `/use/local/cuda`)
+* `GPU=1` to build with CUDA to accelerate by using GPU (CUDA should be in `/usr/local/cuda`)
 * `CUDNN=1` to build with cuDNN v5/v6 to accelerate training by using GPU (cuDNN should be in `/usr/local/cudnn`)
 * `OPENCV=1` to build with OpenCV 3.x/2.4.x - allows to detect on video files and video streams from network cameras or web-cams
 * `DEBUG=1` to bould debug version of Yolo
 * `OPENMP=1` to build with OpenMP support to accelerate Yolo by using multi-core CPU
-* `LIBSO=1` to build a library `darknet.so` and binary runable file `uselib` that uses this library. How to use this SO-library from your own code - you can look at C++ example: https://github.com/AlexeyAB/darknet/blob/master/src/yolo_console_dll.cpp
+* `LIBSO=1` to build a library `darknet.so` and binary runable file `uselib` that uses this library. Or you can try to run so `LD_LIBRARY_PATH=./:$LD_LIBRARY_PATH ./uselib test.mp4` How to use this SO-library from your own code - you can look at C++ example: https://github.com/AlexeyAB/darknet/blob/master/src/yolo_console_dll.cpp
 
 
 ### How to compile on Windows:
@@ -131,9 +138,7 @@ Before make, you can set such options in the `Makefile`: [link](https://github.c
   
     4.2 (right click on project) -> properties  -> Linker -> General -> Additional Library Directories: `C:\opencv_2.4.13\opencv\build\x64\vc14\lib`
   
-5. If you have other version of OpenCV 2.4.x (not 3.x) then you also should change lines like `#pragma comment(lib, "opencv_core2413.lib")` in the file `\src\detector.c`
-
-6. If you want to build with CUDNN to speed up then:
+5. If you want to build with CUDNN to speed up then:
       
     * download and install **cuDNN 6.0 for CUDA 8.0**: https://developer.nvidia.com/cudnn
       
@@ -161,16 +166,14 @@ Then add to your created project:
 
 `OPENCV;_TIMESPEC_DEFINED;_CRT_SECURE_NO_WARNINGS;_CRT_RAND_S;WIN32;NDEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)`
 
-- open file: `\src\detector.c` and check lines `#pragma` and `#inclue` for OpenCV.
-
 - compile to .exe (X64 & Release) and put .dll-s near with .exe:
 
     * `pthreadVC2.dll, pthreadGC2.dll` from \3rdparty\dll\x64
 
     * `cusolver64_80.dll, curand64_80.dll, cudart64_80.dll, cublas64_80.dll` - 80 for CUDA 8.0 or your version, from C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v8.0\bin
 
-    * For OpenCV 3.0: `opencv_world320.dll` and `opencv_ffmpeg320_64.dll` from `C:\opencv_3.0\opencv\build\x64\vc14\bin` 
-    * For OpenCV 2.4.13: `opencv_core249.dll`, `opencv_highgui249.dll` and `opencv_ffmpeg249_64.dll` from  `C:\opencv_2.4.9\opencv\build\x64\vc14\bin`
+    * For OpenCV 3.X: `opencv_world320.dll` and `opencv_ffmpeg320_64.dll` from `C:\opencv_3.0\opencv\build\x64\vc14\bin` 
+    * For OpenCV 2.4.13: `opencv_core2413.dll`, `opencv_highgui2413.dll` and `opencv_ffmpeg2413_64.dll` from  `C:\opencv_2.4.13\opencv\build\x64\vc14\bin`
 
 ## How to train (Pascal VOC Data):
 
@@ -201,7 +204,7 @@ More information about training by the link: http://pjreddie.com/darknet/yolo/#t
 
 1. Train it first on 1 GPU for like 1000 iterations: `darknet.exe detector train data/voc.data yolo-voc.2.0.cfg darknet19_448.conv.23`
 
-2. Then stop and by using partially-trained model `/backup/yolo-voc_1000.weights` run training with multigpu (up to 4 GPUs): `darknet.exe detector train data/voc.data yolo-voc.2.0.cfg yolo-voc_1000.weights -gpus 0,1,2,3`
+2. Then stop and by using partially-trained model `/backup/yolo-voc_1000.weights` run training with multigpu (up to 4 GPUs): `darknet.exe detector train data/voc.data yolo-voc.2.0.cfg /backup/yolo-voc_1000.weights -gpus 0,1,2,3`
 
 https://groups.google.com/d/msg/darknet/NbJqonJBTSY/Te5PfIpuCAAJ
 
@@ -212,9 +215,11 @@ https://groups.google.com/d/msg/darknet/NbJqonJBTSY/Te5PfIpuCAAJ
   * change line batch to [`batch=64`](https://github.com/AlexeyAB/darknet/blob/master/build/darknet/x64/yolo-voc.2.0.cfg#L2)
   * change line subdivisions to [`subdivisions=8`](https://github.com/AlexeyAB/darknet/blob/master/build/darknet/x64/yolo-voc.2.0.cfg#L3)
   * change line `classes=20` to your number of objects
-  * change line #237 from [`filters=125`](https://github.com/AlexeyAB/darknet/blob/master/cfg/yolo-voc.2.0.cfg#L224) to `filters=(classes + 5)*5` (generally this depends on the `num` and `coords`, i.e. equal to `(classes + coords + 1)*num`)
+  * change line #237 from [`filters=125`](https://github.com/AlexeyAB/darknet/blob/master/cfg/yolo-voc.2.0.cfg#L224) to: filters=(classes + 5)*5, so if `classes=2` then should be `filter=35`
+  
+  (Generally `filters` depends on the `classes`, `num` and `coords`, i.e. equal to `(classes + coords + 1)*num`)
 
-  For example, for 2 objects, your file `yolo-obj.cfg` should differ from `yolo-voc.2.0.cfg` in such lines:
+  So for example, for 2 objects, your file `yolo-obj.cfg` should differ from `yolo-voc.2.0.cfg` in such lines:
 
   ```
   [convolutional]
@@ -319,6 +324,8 @@ For example, **bigger IOU** gives weights `yolo-obj_8000.weights` - then **use t
 
 ![precision_recall_iou](https://hsto.org/files/ca8/866/d76/ca8866d76fb840228940dbf442a7f06a.jpg)
 
+How to calculate **mAP** [voc_eval.py](https://github.com/AlexeyAB/darknet/blob/master/scripts/voc_eval.py) or [datascience.stackexchange link](https://datascience.stackexchange.com/questions/16797/what-does-the-notation-map-5-95-mean)
+
 ### Custom object detection:
 
 Example of custom object detection: `darknet.exe detector test data/obj.data yolo-obj.cfg yolo-obj_8000.weights`
@@ -345,6 +352,28 @@ Example of custom object detection: `darknet.exe detector test data/obj.data yol
 Here you can find repository with GUI-software for marking bounded boxes of objects and generating annotation files for Yolo v2: https://github.com/AlexeyAB/Yolo_mark
 
 With example of: `train.txt`, `obj.names`, `obj.data`, `yolo-obj.cfg`, `air`1-6`.txt`, `bird`1-4`.txt` for 2 classes of objects (air, bird) and `train_obj.cmd` with example how to train this image-set with Yolo v2
+
+## Using Yolo9000
+
+ Simultaneous detection and classification of 9000 objects:
+
+* `yolo9000.weights` - (186 MB Yolo9000 Model) requires 4 GB GPU-RAM: http://pjreddie.com/media/files/yolo9000.weights
+
+* `yolo9000.cfg` - cfg-file of the Yolo9000, also there are paths to the `9k.tree` and `coco9k.map`  https://github.com/AlexeyAB/darknet/blob/617cf313ccb1fe005db3f7d88dec04a04bd97cc2/cfg/yolo9000.cfg#L217-L218
+
+    * `9k.tree` - **WordTree** of 9418 categories  - `<label> <parent_it>`, if `parent_id == -1` then this label hasn't parent: https://raw.githubusercontent.com/AlexeyAB/darknet/master/build/darknet/x64/data/9k.tree
+
+    * `coco9k.map` - map 80 categories from MSCOCO to WordTree `9k.tree`: https://raw.githubusercontent.com/AlexeyAB/darknet/master/build/darknet/x64/data/coco9k.map
+
+* `combine9k.data` - data file, there are paths to: `9k.labels`, `9k.names`, `inet9k.map`, (change path to your `combine9k.train.list`): https://raw.githubusercontent.com/AlexeyAB/darknet/master/build/darknet/x64/data/combine9k.data
+
+    * `9k.labels` - 9418 labels of objects: https://raw.githubusercontent.com/AlexeyAB/darknet/master/build/darknet/x64/data/9k.labels
+
+    * `9k.names` -
+9418 names of objects: https://raw.githubusercontent.com/AlexeyAB/darknet/master/build/darknet/x64/data/9k.names
+
+    * `inet9k.map` - map 200 categories from ImageNet to WordTree `9k.tree`: https://raw.githubusercontent.com/AlexeyAB/darknet/master/build/darknet/x64/data/inet9k.map
+
 
 ## How to use Yolo as DLL
 

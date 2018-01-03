@@ -126,6 +126,7 @@ char *basecfg(char *cfgfile)
     {
         c = next+1;
     }
+	if(!next) while ((next = strchr(c, '\\'))) { c = next + 1; }
     c = copy_string(c);
     next = strchr(c, '.');
     if (next) *next = 0;
@@ -285,6 +286,7 @@ char *fgetl(FILE *fp)
         fgets(&line[curr], readsize, fp);
         curr = strlen(line);
     }
+    if(line[curr-2] == '\r') line[curr-2] = '\0';
     if(line[curr-1] == '\n') line[curr-1] = '\0';
 
     return line;

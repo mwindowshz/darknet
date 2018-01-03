@@ -584,6 +584,11 @@ int is_network(section *s)
 
 network parse_network_cfg(char *filename)
 {
+	return parse_network_cfg_custom(filename, 0);
+}
+
+network parse_network_cfg_custom(char *filename, int batch)
+{
     list *sections = read_cfg(filename);
     node *n = sections->front;
     if(!n) error("Config file has no sections");
@@ -600,6 +605,7 @@ network parse_network_cfg(char *filename)
     params.w = net.w;
     params.c = net.c;
     params.inputs = net.inputs;
+	if (batch > 0) net.batch = batch;
     params.batch = net.batch;
     params.time_steps = net.time_steps;
     params.net = net;
@@ -698,6 +704,8 @@ network parse_network_cfg(char *filename)
     }
     return net;
 }
+
+
 
 list *read_cfg(char *filename)
 {
@@ -1025,12 +1033,14 @@ void load_weights_upto(network *net, char *filename, int cutoff)
     fread(&minor, sizeof(int), 1, fp);
     fread(&revision, sizeof(int), 1, fp);
 	if ((major * 10 + minor) >= 2) {
-		fread(net->seen, sizeof(uint64_t), 1, fp);
+		printf("\n seen 64 \n");
+		uint64_t iseen = 0;
+		fread(&iseen, sizeof(uint64_t), 1, fp);
+		*net->seen = iseen;
 	}
 	else {
-		int iseen = 0;
-		fread(&iseen, sizeof(int), 1, fp);
-		*net->seen = iseen;
+		printf("\n seen 32 \n");
+		fread(net->seen, sizeof(int), 1, fp);
 	}
     int transpose = (major > 1000) || (minor > 1000);
 
