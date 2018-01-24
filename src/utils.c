@@ -196,17 +196,43 @@ void error(const char *s)
 {
     perror(s);
     assert(0);
+	FILE *fp = NULL;
+	fp = fopen("network_error.txt", "a");
+	if (fp)
+	{
+		fprintf(fp, "error : %s\n", s);
+		fclose(fp);
+		fp = NULL;
+	}
     exit(-1);
 }
 
 void malloc_error()
 {
     fprintf(stderr, "Malloc error\n");
+	FILE *fp = NULL;
+	fp = fopen("network_error.txt", "a");
+	if (fp)
+	{
+		fprintf(fp, "Malloc error\n");
+		fclose(fp);
+		fp = NULL;
+	}
+
     exit(-1);
 }
 
 void file_error(char *s)
 {
+	FILE *fp = NULL;
+	fp = fopen("network_error.txt", "a");
+	if (fp)
+	{
+		fprintf(fp, "Couldn't open file: %s\n", s);
+		fclose(fp);
+		fp = NULL;
+	}
+	
     fprintf(stderr, "Couldn't open file: %s\n", s);
     exit(0);
 }
