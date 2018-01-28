@@ -1,5 +1,6 @@
+#include <vector>
+#include "IDetector.h"
 #include "yolo_v2_class.hpp"
-
 #include "network.h"
 
 extern "C" {
@@ -16,7 +17,7 @@ extern "C" {
 }
 //#include <sys/time.h>
 
-#include <vector>
+
 #include <iostream>
 #include <algorithm>
 
@@ -34,6 +35,10 @@ struct detector_gpu_t{
 };
 
 
+YOLODLL_API Detector::Detector(const char * cfg_filename, const char * weight_filename, int gpu_id)
+	:Detector(std::string(cfg_filename), std::string(weight_filename), gpu_id)
+{}
+
 YOLODLL_API Detector::Detector(std::string cfg_filename, std::string weight_filename, int gpu_id)
 {
 	int old_gpu_index;
@@ -50,6 +55,7 @@ YOLODLL_API Detector::Detector(std::string cfg_filename, std::string weight_file
 	network &net = detector_gpu.net;
 	net.gpu_index = gpu_id;
 	//gpu_index = i;
+
 	
 	char *cfgfile = const_cast<char *>(cfg_filename.data());
 	char *weightfile = const_cast<char *>(weight_filename.data());
@@ -182,7 +188,7 @@ YOLODLL_API std::vector<bbox_t> Detector::detect(image_t img, float thresh, bool
 #endif
 	//std::cout << "net.gpu_index = " << net.gpu_index << std::endl;
 
-	//float nms = .4;
+	float nms = .4; 
 
 	image im;
 	im.c = img.c;
@@ -248,6 +254,16 @@ YOLODLL_API std::vector<bbox_t> Detector::detect(image_t img, float thresh, bool
 	return bbox_vec;
 }
 
+YOLODLL_API int Detector::detectResArray(image_t img, float thresh , bool use_mean , bbox_t** pBoxes  )
+{
+	auto boxes = detect(img, thresh, use_mean);
+	*pBoxes = new bbox_t[boxes.size()];
+	std::copy(begin(boxes), end(boxes), *pBoxes);
+
+	return boxes.size();
+
+
+}
 YOLODLL_API std::vector<bbox_t> Detector::tracking(std::vector<bbox_t> cur_bbox_vec, int const frames_story)
 {
 	detector_gpu_t &det_gpu = *reinterpret_cast<detector_gpu_t *>(detector_gpu_ptr.get());
@@ -302,3 +318,13 @@ YOLODLL_API std::vector<bbox_t> Detector::tracking(std::vector<bbox_t> cur_bbox_
 
 	return cur_bbox_vec;
 }
+//IDetector* GetDetectorPtr(const char*, const char*);
+std::mutex m_mtx;
+IDetector * GetDetectorPtr(const char* cfgFile, const char* weightsFile)
+{
+	std::lock_guard<std::mutex> lock(m_mtx);
+	static Detector ptr(cfgFile, weightsFile);
+	//return new Detector(cfgFile, weightsFile);
+	return &ptr;
+}
+ 
