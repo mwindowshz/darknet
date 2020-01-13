@@ -1,26 +1,30 @@
 #include "blas.h"
-#include "math.h"
+
+#include <math.h>
 #include <assert.h>
 #include <float.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void reorg_cpu(float *x, int w, int h, int c, int batch, int stride, int forward, float *out)
+void reorg_cpu(float *x, int out_w, int out_h, int out_c, int batch, int stride, int forward, float *out)
 {
     int b,i,j,k;
-    int out_c = c/(stride*stride);
+    int in_c = out_c/(stride*stride);
+
+    //printf("\n out_c = %d, out_w = %d, out_h = %d, stride = %d, forward = %d \n", out_c, out_w, out_h, stride, forward);
+    //printf("  in_c = %d,  in_w = %d,  in_h = %d \n", in_c, out_w*stride, out_h*stride);
 
     for(b = 0; b < batch; ++b){
-        for(k = 0; k < c; ++k){
-            for(j = 0; j < h; ++j){
-                for(i = 0; i < w; ++i){
-                    int in_index  = i + w*(j + h*(k + c*b));
-                    int c2 = k % out_c;
-                    int offset = k / out_c;
+        for(k = 0; k < out_c; ++k){
+            for(j = 0; j < out_h; ++j){
+                for(i = 0; i < out_w; ++i){
+                    int in_index  = i + out_w*(j + out_h*(k + out_c*b));
+                    int c2 = k % in_c;
+                    int offset = k / in_c;
                     int w2 = i*stride + offset % stride;
                     int h2 = j*stride + offset / stride;
-                    int out_index = w2 + w*stride*(h2 + h*stride*(c2 + out_c*b));
-                    if(forward) out[out_index] = x[in_index];
+                    int out_index = w2 + out_w*stride*(h2 + out_h*stride*(c2 + in_c*b));
+                    if(forward) out[out_index] = x[in_index];    // used by default for forward (i.e. forward = 0)
                     else out[in_index] = x[out_index];
                 }
             }
@@ -30,7 +34,7 @@ void reorg_cpu(float *x, int w, int h, int c, int batch, int stride, int forward
 
 void flatten(float *x, int size, int layers, int batch, int forward)
 {
-    float *swap = calloc(size*layers*batch, sizeof(float));
+    float* swap = (float*)calloc(size * layers * batch, sizeof(float));
     int i,c,b;
     for(b = 0; b < batch; ++b){
         for(c = 0; c < layers; ++c){
@@ -51,6 +55,152 @@ void weighted_sum_cpu(float *a, float *b, float *s, int n, float *c)
     int i;
     for(i = 0; i < n; ++i){
         c[i] = s[i]*a[i] + (1-s[i])*(b ? b[i] : 0);
+    }
+}
+
+void weighted_delta_cpu(float *a, float *b, float *s, float *da, float *db, float *ds, int n, float *dc)
+{
+    int i;
+    for(i = 0; i < n; ++i){
+        if(da) da[i] += dc[i] * s[i];
+        if(db) db[i] += dc[i] * (1-s[i]);
+        ds[i] += dc[i] * (a[i] - b[i]);
+    }
+}
+
+static float relu(float src) {
+    if (src > 0) return src;
+    return 0;
+}
+
+void shortcut_multilayer_cpu(int size, int src_outputs, int batch, int n, int *outputs_of_layers, float **layers_output, float *out, float *in, float *weights, int nweights, WEIGHTS_NORMALIZATION_T weights_normalizion)
+{
+    // nweights - l.n or l.n*l.c or (l.n*l.c*l.h*l.w)
+    const int layer_step = nweights / (n + 1);    // 1 or l.c or (l.c * l.h * l.w)
+    int step = 0;
+    if (weights) step = src_outputs / layer_step; // (l.c * l.h * l.w) or (l.w*l.h) or 1
+
+    int id;
+    #pragma omp parallel for
+    for (id = 0; id < size; ++id) {
+
+        int src_id = id;
+        const int src_i = src_id % src_outputs;
+        src_id /= src_outputs;
+        int src_b = src_id;
+
+        float sum = 1;
+        int i;
+        if (weights && weights_normalizion) {
+            const float eps = 0.0001;
+            sum = eps;
+            for (i = 0; i < (n + 1); ++i) {
+                const int weights_index = src_i / step + i*layer_step;  // [0 or c or (c, h ,w)]
+                if (weights_normalizion == RELU_NORMALIZATION) sum += relu(weights[weights_index]);
+                else if (weights_normalizion == SOFTMAX_NORMALIZATION) sum += expf(weights[weights_index]);
+            }
+        }
+
+        if (weights) {
+            float w = weights[src_i / step];
+            if (weights_normalizion == RELU_NORMALIZATION) w = relu(w) / sum;
+            else if (weights_normalizion == SOFTMAX_NORMALIZATION) w = expf(w) / sum;
+
+            out[id] = in[id] * w; // [0 or c or (c, h ,w)]
+        }
+        else out[id] = in[id];
+
+        // layers
+        for (i = 0; i < n; ++i) {
+            int add_outputs = outputs_of_layers[i];
+            if (src_i < add_outputs) {
+                int add_index = add_outputs*src_b + src_i;
+                int out_index = id;
+
+                float *add = layers_output[i];
+
+                if (weights) {
+                    const int weights_index = src_i / step + (i + 1)*layer_step;  // [0 or c or (c, h ,w)]
+                    float w = weights[weights_index];
+                    if (weights_normalizion == RELU_NORMALIZATION) w = relu(w) / sum;
+                    else if (weights_normalizion == SOFTMAX_NORMALIZATION) w = expf(w) / sum;
+
+                    out[out_index] += add[add_index] * w; // [0 or c or (c, h ,w)]
+                }
+                else out[out_index] += add[add_index];
+            }
+        }
+    }
+}
+
+void backward_shortcut_multilayer_cpu(int size, int src_outputs, int batch, int n, int *outputs_of_layers,
+    float **layers_delta, float *delta_out, float *delta_in, float *weights, float *weight_updates, int nweights, float *in, float **layers_output, WEIGHTS_NORMALIZATION_T weights_normalizion)
+{
+    // nweights - l.n or l.n*l.c or (l.n*l.c*l.h*l.w)
+    const int layer_step = nweights / (n + 1);    // 1 or l.c or (l.c * l.h * l.w)
+    int step = 0;
+    if (weights) step = src_outputs / layer_step; // (l.c * l.h * l.w) or (l.w*l.h) or 1
+
+    int id;
+    #pragma omp parallel for
+    for (id = 0; id < size; ++id) {
+        int src_id = id;
+        int src_i = src_id % src_outputs;
+        src_id /= src_outputs;
+        int src_b = src_id;
+
+        float grad = 1, sum = 1;
+        int i;
+        if (weights && weights_normalizion) {
+            const float eps = 0.0001;
+            sum = eps;
+            for (i = 0; i < (n + 1); ++i) {
+                const int weights_index = src_i / step + i*layer_step;  // [0 or c or (c, h ,w)]
+                if (weights_normalizion == RELU_NORMALIZATION) sum += relu(weights[weights_index]);
+                else if (weights_normalizion == SOFTMAX_NORMALIZATION) sum += expf(weights[weights_index]);
+            }
+
+            grad = 0;
+            for (i = 0; i < (n + 1); ++i) {
+                const int weights_index = src_i / step + i*layer_step;  // [0 or c or (c, h ,w)]
+                const float delta_w = delta_in[id] * in[id];
+                if (weights_normalizion == RELU_NORMALIZATION) grad += delta_w * relu(weights[weights_index]) / sum;
+                else if (weights_normalizion == SOFTMAX_NORMALIZATION) grad += delta_w * expf(weights[weights_index]) / sum;
+            }
+        }
+
+        if (weights) {
+            float w = weights[src_i / step];
+            if (weights_normalizion == RELU_NORMALIZATION) w = relu(w) / sum;
+            else if (weights_normalizion == SOFTMAX_NORMALIZATION) w = expf(w) / sum;
+
+            delta_out[id] += delta_in[id] * w; // [0 or c or (c, h ,w)]
+            weight_updates[src_i / step] += delta_in[id] * in[id] * grad;
+        }
+        else delta_out[id] += delta_in[id];
+
+        // layers
+        for (i = 0; i < n; ++i) {
+            int add_outputs = outputs_of_layers[i];
+            if (src_i < add_outputs) {
+                int add_index = add_outputs*src_b + src_i;
+                int out_index = id;
+
+                float *layer_delta = layers_delta[i];
+                if (weights) {
+                    float *add = layers_output[i];
+
+                    const int weights_index = src_i / step + (i + 1)*layer_step;  // [0 or c or (c, h ,w)]
+                    float w = weights[weights_index];
+                    if (weights_normalizion == RELU_NORMALIZATION) w = relu(w) / sum;
+                    else if (weights_normalizion == SOFTMAX_NORMALIZATION) w = expf(w) / sum;
+
+                    layer_delta[add_index] += delta_in[id] * w; // [0 or c or (c, h ,w)]
+                    weight_updates[weights_index] += delta_in[id] * add[add_index] * grad;
+                }
+                else layer_delta[add_index] += delta_in[id];
+            }
+        }
     }
 }
 
@@ -155,16 +305,63 @@ void scal_cpu(int N, float ALPHA, float *X, int INCX)
     for(i = 0; i < N; ++i) X[i*INCX] *= ALPHA;
 }
 
+void scal_add_cpu(int N, float ALPHA, float BETA, float *X, int INCX)
+{
+    int i;
+    for (i = 0; i < N; ++i) X[i*INCX] = X[i*INCX] * ALPHA + BETA;
+}
+
 void fill_cpu(int N, float ALPHA, float *X, int INCX)
 {
     int i;
-    for(i = 0; i < N; ++i) X[i*INCX] = ALPHA;
+    if (INCX == 1 && ALPHA == 0) {
+        memset(X, 0, N * sizeof(float));
+    }
+    else {
+        for (i = 0; i < N; ++i) X[i*INCX] = ALPHA;
+    }
+}
+
+void deinter_cpu(int NX, float *X, int NY, float *Y, int B, float *OUT)
+{
+    int i, j;
+    int index = 0;
+    for(j = 0; j < B; ++j) {
+        for(i = 0; i < NX; ++i){
+            if(X) X[j*NX + i] += OUT[index];
+            ++index;
+        }
+        for(i = 0; i < NY; ++i){
+            if(Y) Y[j*NY + i] += OUT[index];
+            ++index;
+        }
+    }
+}
+
+void inter_cpu(int NX, float *X, int NY, float *Y, int B, float *OUT)
+{
+    int i, j;
+    int index = 0;
+    for(j = 0; j < B; ++j) {
+        for(i = 0; i < NX; ++i){
+            OUT[index++] = X[j*NX + i];
+        }
+        for(i = 0; i < NY; ++i){
+            OUT[index++] = Y[j*NY + i];
+        }
+    }
 }
 
 void copy_cpu(int N, float *X, int INCX, float *Y, int INCY)
 {
     int i;
     for(i = 0; i < N; ++i) Y[i*INCY] = X[i*INCX];
+}
+
+void mult_add_into_cpu(int N, float *X, float *Y, float *Z)
+{
+    int i;
+    for(i = 0; i < N; ++i) Z[i] += X[i]*Y[i];
 }
 
 void smooth_l1_cpu(int n, float *pred, float *truth, float *delta, float *error)
@@ -179,8 +376,40 @@ void smooth_l1_cpu(int n, float *pred, float *truth, float *delta, float *error)
         }
         else {
             error[i] = 2*abs_val - 1;
-            delta[i] = (diff < 0) ? -1 : 1;
+            delta[i] = (diff > 0) ? 1 : -1;
         }
+    }
+}
+
+void l1_cpu(int n, float *pred, float *truth, float *delta, float *error)
+{
+    int i;
+    for(i = 0; i < n; ++i){
+        float diff = truth[i] - pred[i];
+        error[i] = fabs(diff);
+        delta[i] = diff > 0 ? 1 : -1;
+    }
+}
+
+void softmax_x_ent_cpu(int n, float *pred, float *truth, float *delta, float *error)
+{
+    int i;
+    for(i = 0; i < n; ++i){
+        float t = truth[i];
+        float p = pred[i];
+        error[i] = (t) ? -log(p) : 0;
+        delta[i] = t-p;
+    }
+}
+
+void logistic_x_ent_cpu(int n, float *pred, float *truth, float *delta, float *error)
+{
+    int i;
+    for(i = 0; i < n; ++i){
+        float t = truth[i];
+        float p = pred[i];
+        error[i] = -t*log(p) - (1-t)*log(1-p);
+        delta[i] = t-p;
     }
 }
 
@@ -202,21 +431,67 @@ float dot_cpu(int N, float *X, int INCX, float *Y, int INCY)
     return dot;
 }
 
-void softmax(float *input, int n, float temp, float *output)
+void softmax(float *input, int n, float temp, float *output, int stride)
 {
     int i;
     float sum = 0;
     float largest = -FLT_MAX;
     for(i = 0; i < n; ++i){
-        if(input[i] > largest) largest = input[i];
+        if(input[i*stride] > largest) largest = input[i*stride];
     }
     for(i = 0; i < n; ++i){
-        float e = exp(input[i]/temp - largest/temp);
+        float e = exp(input[i*stride]/temp - largest/temp);
         sum += e;
-        output[i] = e;
+        output[i*stride] = e;
     }
     for(i = 0; i < n; ++i){
-        output[i] /= sum;
+        output[i*stride] /= sum;
     }
 }
 
+
+void softmax_cpu(float *input, int n, int batch, int batch_offset, int groups, int group_offset, int stride, float temp, float *output)
+{
+    int g, b;
+    for(b = 0; b < batch; ++b){
+        for(g = 0; g < groups; ++g){
+            softmax(input + b*batch_offset + g*group_offset, n, temp, output + b*batch_offset + g*group_offset, stride);
+        }
+    }
+}
+
+void upsample_cpu(float *in, int w, int h, int c, int batch, int stride, int forward, float scale, float *out)
+{
+    int i, j, k, b;
+    for (b = 0; b < batch; ++b) {
+        for (k = 0; k < c; ++k) {
+            for (j = 0; j < h*stride; ++j) {
+                for (i = 0; i < w*stride; ++i) {
+                    int in_index = b*w*h*c + k*w*h + (j / stride)*w + i / stride;
+                    int out_index = b*w*h*c*stride*stride + k*w*h*stride*stride + j*w*stride + i;
+                    if (forward) out[out_index] = scale*in[in_index];
+                    else in[in_index] += scale*out[out_index];
+                }
+            }
+        }
+    }
+}
+
+
+void constrain_cpu(int size, float ALPHA, float *X)
+{
+    int i;
+    for (i = 0; i < size; ++i) {
+        X[i] = fminf(ALPHA, fmaxf(-ALPHA, X[i]));
+    }
+}
+
+void fix_nan_and_inf_cpu(float *input, size_t size)
+{
+    int i;
+    for (i = 0; i < size; ++i) {
+        float val = input[i];
+        if (isnan(val) || isinf(val))
+            input[i] = 1.0f / i;  // pseudo random value
+    }
+}
