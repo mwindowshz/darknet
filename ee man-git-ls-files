@@ -1,0 +1,225 @@
+[1mdiff --cc CMakeLists.txt[m
+[1mindex a624b59,0b354dc..0000000[m
+[1m--- a/CMakeLists.txt[m
+[1m+++ b/CMakeLists.txt[m
+[36m@@@ -65,7 -65,7 +65,11 @@@[m [melse([m
+      else()[m
+        cuda_select_nvcc_arch_flags(CUDA_ARCH_FLAGS ${CUDA_ARCHITECTURES})[m
+        message(STATUS "Building with CUDA flags: " "${CUDA_ARCH_FLAGS}")[m
+[32m++<<<<<<< HEAD[m
+[32m +      if (NOT "arch=compute_75,code=sm_75" IN_LIST CUDA_ARCH_FLAGS)[m
+[32m++=======[m
+[32m+       if (NOT "arch=compute_70,code=sm_70" IN_LIST CUDA_ARCH_FLAGS)[m
+[32m++>>>>>>> upstream/master[m
+          set(ENABLE_CUDNN_HALF "FALSE" CACHE BOOL "Enable CUDNN Half precision" FORCE)[m
+          message(STATUS "Your setup does not supports half precision (it requires CC >= 7.5)")[m
+        endif()[m
+[1mdiff --cc Makefile[m
+[1mindex 590db18,d4dd53f..0000000[m
+[1m--- a/Makefile[m
+[1m+++ b/Makefile[m
+[36m@@@ -5,7 -5,8 +5,12 @@@[m [mOPENCV=[m
+  AVX=0[m
+  OPENMP=0[m
+  LIBSO=0[m
+[32m++<<<<<<< HEAD[m
+[32m +ZED_CAMERA=0[m
+[32m++=======[m
+[32m+ ZED_CAMERA=0 # ZED SDK 3.0 and above[m
+[32m+ ZED_CAMERA_v2_8=0 # ZED SDK 2.X[m
+[32m++>>>>>>> upstream/master[m
+  [m
+  # set GPU=1 and CUDNN=1 to speedup on GPU[m
+  # set CUDNN_HALF=1 to further speedup 3 x times (Mixed-precision on Tensor Cores) GPU: Volta, Xavier, Turing and higher[m
+[36m@@@ -59,7 -60,7 +64,11 @@@[m [mels[m
+  CC=gcc[m
+  endif[m
+  [m
+[32m++<<<<<<< HEAD[m
+[32m +CPP=g++[m
+[32m++=======[m
+[32m+ CPP=g++ -std=c++11[m
+[32m++>>>>>>> upstream/master[m
+  NVCC=nvcc[m
+  OPTS=-Ofast[m
+  LDFLAGS= -lm -pthread[m
+[36m@@@ -86,8 -87,8 +95,13 @@@[m [mendi[m
+  ifeq ($(OPENCV), 1)[m
+  COMMON+= -DOPENCV[m
+  CFLAGS+= -DOPENCV[m
+[32m++<<<<<<< HEAD[m
+[32m +LDFLAGS+= `pkg-config --libs opencv`[m
+[32m +COMMON+= `pkg-config --cflags opencv`[m
+[32m++=======[m
+[32m+ LDFLAGS+= `pkg-config --libs opencv4 2> /dev/null || pkg-config --libs opencv`[m
+[32m+ COMMON+= `pkg-config --cflags opencv4 2> /dev/null || pkg-config --cflags opencv`[m
+[32m++>>>>>>> upstream/master[m
+  endif[m
+  [m
+  ifeq ($(OPENMP), 1)[m
+[36m@@@ -121,13 -122,18 +135,28 @@@[m [mCOMMON+= -DCUDNN_HAL[m
+  CFLAGS+= -DCUDNN_HALF[m
+  ARCH+= -gencode arch=compute_70,code=[sm_70,compute_70][m
+  endif[m
+[32m++<<<<<<< HEAD[m
+[32m +[m
+[32m +ifeq ($(ZED_CAMERA), 1)[m
+[32m +CFLAGS+= -DZED_STEREO -I/usr/local/zed/include[m
+[32m +LDFLAGS+= -L/usr/local/zed/lib -lsl_core -lsl_input -lsl_zed[m
+[32m +#-lstdc++ -D_GLIBCXX_USE_CXX11_ABI=0 [m
+[32m +endif[m
+[32m +[m
+[32m++=======[m
+[32m+ [m
+[32m+ ifeq ($(ZED_CAMERA), 1)[m
+[32m+ CFLAGS+= -DZED_STEREO -I/usr/local/zed/include[m
+[32m+ ifeq ($(ZED_CAMERA_v2_8), 1)[m
+[32m+ LDFLAGS+= -L/usr/local/zed/lib -lsl_core -lsl_input -lsl_zed[m
+[32m+ #-lstdc++ -D_GLIBCXX_USE_CXX11_ABI=0 [m
+[32m+ else[m
+[32m+ LDFLAGS+= -L/usr/local/zed/lib -lsl_zed[m
+[32m+ #-lstdc++ -D_GLIBCXX_USE_CXX11_ABI=0 [m
+[32m+ endif[m
+[32m+ endif[m
+[32m+ [m
+[32m++>>>>>>> upstream/master[m
+  OBJ=image_opencv.o http_stream.o gemm.o utils.o dark_cuda.o convolutional_layer.o list.o image.o activations.o im2col.o col2im.o blas.o crop_layer.o dropout_layer.o maxpool_layer.o softmax_layer.o data.o matrix.o network.o connected_layer.o cost_layer.o parser.o option_list.o darknet.o detection_layer.o captcha.o route_layer.o writing.o box.o nightmare.o normalization_layer.o avgpool_layer.o coco.o dice.o yolo.o detector.o layer.o compare.o classifier.o local_layer.o swag.o shortcut_layer.o activation_layer.o rnn_layer.o gru_layer.o rnn.o rnn_vid.o crnn_layer.o demo.o tag.o cifar.o go.o batchnorm_layer.o art.o region_layer.o reorg_layer.o reorg_old_layer.o super.o voxel.o tree.o yolo_layer.o gaussian_yolo_layer.o upsample_layer.o lstm_layer.o conv_lstm_layer.o scale_channels_layer.o sam_layer.o[m
+  ifeq ($(GPU), 1) [m
+  LDFLAGS+= -lstdc++ [m
+[1mdiff --cc README.md[m
+[1mindex 632f896,10ce472..0000000[m
+[1m--- a/README.md[m
+[1m+++ b/README.md[m
+[36m@@@ -1,5 -1,7 +1,12 @@@[m
+[32m++<<<<<<< HEAD[m
+[32m +# Yolo-v3 and Yolo-v2 for Windows and Linux[m
+[32m +### (neural network for object detection) - Tensor Cores can be used on [Linux](https://github.com/AlexeyAB/darknet#how-to-compile-on-linux) and [Windows](https://github.com/AlexeyAB/darknet#how-to-compile-on-windows-using-vcpkg)[m
+[32m++=======[m
+[32m+ # Yolo-v4 and Yolo-v3/v2 for Windows and Linux[m
+[32m+ ### (neural network for object detection) - Tensor Cores can be used on [Linux](https://github.com/AlexeyAB/darknet#how-to-compile-on-linux) and [Windows](https://github.com/AlexeyAB/darknet#how-to-compile-on-windows-using-cmake-gui)[m
+[32m+ [m
+[32m+ Paper Yolo v4: https://arxiv.org/abs/2004.10934[m
+[32m++>>>>>>> upstream/master[m
+  [m
+  More details: http://pjreddie.com/darknet/yolo/[m
+  [m
+[36m@@@ -8,7 -10,8 +15,12 @@@[m
+  [![TravisCI](https://travis-ci.org/AlexeyAB/darknet.svg?branch=master)](https://travis-ci.org/AlexeyAB/darknet)[m
+  [![AppveyorCI](https://ci.appveyor.com/api/projects/status/594bwb5uoc1fxwiu/branch/master?svg=true)](https://ci.appveyor.com/project/AlexeyAB/darknet/branch/master)[m
+  [![Contributors](https://img.shields.io/github/contributors/AlexeyAB/Darknet.svg)](https://github.com/AlexeyAB/darknet/graphs/contributors)[m
+[32m++<<<<<<< HEAD[m
+[32m +[![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](https://github.com/AlexeyAB/darknet/blob/master/LICENSE)  [m
+[32m++=======[m
+[32m+ [![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](https://github.com/AlexeyAB/darknet/blob/master/LICENSE)[m
+[32m+ [![DOI](https://zenodo.org/badge/75388965.svg)](https://zenodo.org/badge/latestdoi/75388965)[m
+[32m++>>>>>>> upstream/master[m
+  [m
+  [m
+  * [Requirements (and how to install dependecies)](#requirements)[m
+[36m@@@ -26,162 -29,203 +38,359 @@@[m
+      * [Using CMake-GUI](#how-to-compile-on-windows-using-cmake-gui)[m
+      * [Using vcpkg](#how-to-compile-on-windows-using-vcpkg)[m
+      * [Legacy way](#how-to-compile-on-windows-legacy-way)[m
+[32m++<<<<<<< HEAD[m
+[32m +4.  [How to train (Pascal VOC Data)](#how-to-train-pascal-voc-data)[m
+[32m++=======[m
+[32m+ 4.  [Training and Evaluation of speed and accuracy on MS COCO](https://github.com/AlexeyAB/darknet/wiki#training-and-evaluation-of-speed-and-accuracy-on-ms-coco)[m
+[32m++>>>>>>> upstream/master[m
+  5.  [How to train with multi-GPU:](#how-to-train-with-multi-gpu)[m
+  6.  [How to train (to detect your custom objects)](#how-to-train-to-detect-your-custom-objects)[m
+  7.  [How to train tiny-yolo (to detect your custom objects)](#how-to-train-tiny-yolo-to-detect-your-custom-objects)[m
+  8.  [When should I stop training](#when-should-i-stop-training)[m
+[32m++<<<<<<< HEAD[m
+[32m +9.  [How to calculate mAP on PascalVOC 2007](#how-to-calculate-map-on-pascalvoc-2007)[m
+[32m +10.  [How to improve object detection](#how-to-improve-object-detection)[m
+[32m +11.  [How to mark bounded boxes of objects and create annotation files](#how-to-mark-bounded-boxes-of-objects-and-create-annotation-files)[m
+[32m +12. [How to use Yolo as DLL and SO libraries](#how-to-use-yolo-as-dll-and-so-libraries)[m
+[32m +[m
+[32m +|  ![Darknet Logo](http://pjreddie.com/media/files/darknet-black-small.png) | &nbsp; ![map_fps](https://user-images.githubusercontent.com/4096485/71702416-6645dc00-2de0-11ea-8d65-de7d4b604021.png) mAP@0.5 (AP50) - FPS (GeForce 1080 Ti) https://arxiv.org/abs/1911.11929 https://github.com/WongKinYiu/CrossStagePartialNetworks - more models |[m
+[32m +|---|---|[m
+[32m +[m
+[32m++=======[m
+[32m+ 9.  [How to improve object detection](#how-to-improve-object-detection)[m
+[32m+ 10.  [How to mark bounded boxes of objects and create annotation files](#how-to-mark-bounded-boxes-of-objects-and-create-annotation-files)[m
+[32m+ 11. [How to use Yolo as DLL and SO libraries](#how-to-use-yolo-as-dll-and-so-libraries)[m
+[32m+ [m
+[32m+ [m
+[32m+ [m
+[32m+ |  ![Darknet Logo](http://pjreddie.com/media/files/darknet-black-small.png) | &nbsp; ![readme](https://user-images.githubusercontent.com/4096485/80213782-5f1e3480-8642-11ea-8fdf-0e6b9a6b5f4c.png) AP50:95 / AP50 - FPS (Tesla V100) Paper: https://arxiv.org/abs/2004.10934 |[m
+[32m+ |---|---|[m
+[32m+ [m
+[32m+ * Yolo v4 Full comparison: [map_fps](https://user-images.githubusercontent.com/4096485/80283279-0e303e00-871f-11ea-814c-870967d77fd1.png)[m
+[32m+ * CSPNet: [paper](https://arxiv.org/abs/1911.11929) and [map_fps](https://user-images.githubusercontent.com/4096485/71702416-6645dc00-2de0-11ea-8d65-de7d4b604021.png) comparison: https://github.com/WongKinYiu/CrossStagePartialNetworks[m
+[32m++>>>>>>> upstream/master[m
+  * Yolo v3 on MS COCO: [Speed / Accuracy (mAP@0.5) chart](https://user-images.githubusercontent.com/4096485/52151356-e5d4a380-2683-11e9-9d7d-ac7bc192c477.jpg)[m
+  * Yolo v3 on MS COCO (Yolo v3 vs RetinaNet) - Figure 3: https://arxiv.org/pdf/1804.02767v1.pdf[m
+  * Yolo v2 on Pascal VOC 2007: https://hsto.org/files/a24/21e/068/a2421e0689fb43f08584de9d44c2215f.jpg[m
+  * Yolo v2 on Pascal VOC 2012 (comp4): https://hsto.org/files/3a6/fdf/b53/3a6fdfb533f34cee9b52bdd9bb0b19d9.jpg[m
+  [m
+[32m++<<<<<<< HEAD[m
+[32m +#### Pre-trained models[m
+[32m +[m
+[32m +There are weights-file for different cfg-files (trained for MS COCO dataset):[m
+[32m +[m
+[32m +FPS on GeForce 1080Ti:[m
+[32m +[m
+[32m +* [csresnext50-panet-spp-original-optimal.cfg](https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/csresnext50-panet-spp-original-optimal.cfg) - **65.4% mAP@0.5 (43.2% AP@0.5..0.95) - 35 FPS** - 100.5 BFlops - 217 MB: [csresnext50-panet-spp-original-optimal_final.weights](https://drive.google.com/open?id=1_NnfVgj0EDtb_WLNoXV8Mo7WKgwdYZCc)[m
+[32m +[m
+[32m +* [yolov3-spp.cfg](https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov3-spp.cfg) - **60.6% mAP@0.5 - 30 FPS** - 141.5 BFlops - 240 MB: [yolov3-spp.weights](https://pjreddie.com/media/files/yolov3-spp.weights)[m
+[32m +[m
+[32m +* [yolov3-tiny-prn.cfg](https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov3-tiny-prn.cfg) - **33.1% mAP@0.5 - 400 FPS** - 3.5 BFlops - 18.8 MB: [yolov3-tiny-prn.weights](https://drive.google.com/file/d/18yYZWyKbo4XSDVyztmsEcF9B_6bxrhUY/view?usp=sharing)[m
+[32m +[m
+[32m +* [enet-coco.cfg (EfficientNetB0-Yolov3)](https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/enet-coco.cfg) - **45.5% mAP@0.5 - 60 FPS** - 3.7 BFlops - 18.3 MB: [enetb0-coco_final.weights](https://drive.google.com/file/d/1FlHeQjWEQVJt0ay1PVsiuuMzmtNyv36m/view)[m
+[32m +[m
+[32m +* [yolov3-openimages.cfg](https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov3-openimages.cfg) - 247 MB - OpenImages dataset: [yolov3-openimages.weights](https://pjreddie.com/media/files/yolov3-openimages.weights)[m
+[32m +[m
+[32m +<details><summary><b>CLICK ME</b> - Yolo v3 models</summary>[m
+[32m +[m
+[32m +* [csresnext50-panet-spp.cfg](https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/csresnext50-panet-spp.cfg) - **60.0% mAP@0.5 - 44 FPS** - 71.3 BFlops - 217 MB: [csresnext50-panet-spp_final.weights](https://drive.google.com/file/d/1aNXdM8qVy11nqTcd2oaVB3mf7ckr258-/view?usp=sharing)[m
+[32m +[m
+[32m +* [yolov3.cfg](https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov3.cfg) - **55.3% mAP@0.5 - 46 FPS** - 65.9 BFlops - 236 MB: [yolov3.weights](https://pjreddie.com/media/files/yolov3.weights)[m
+[32m +[m
+[32m +* [yolov3-tiny.cfg](https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov3-tiny.cfg) - **33.1% mAP@0.5 - 330 FPS** - 5.6 BFlops - 33.7 MB: [yolov3-tiny.weights](https://pjreddie.com/media/files/yolov3-tiny.weights)[m
+[32m +[m
+[32m +</details>[m
+[32m +[m
+[32m +<details><summary><b>CLICK ME</b> - Yolo v2 models</summary>[m
+[32m +[m
+[32m +* `yolov2.cfg` (194 MB COCO Yolo v2) - requires 4 GB GPU-RAM: https://pjreddie.com/media/files/yolov2.weights[m
+[32m +* `yolo-voc.cfg` (194 MB VOC Yolo v2) - requires 4 GB GPU-RAM: http://pjreddie.com/media/files/yolo-voc.weights[m
+[32m +* `yolov2-tiny.cfg` (43 MB COCO Yolo v2) - requires 1 GB GPU-RAM: https://pjreddie.com/media/files/yolov2-tiny.weights[m
+[32m +* `yolov2-tiny-voc.cfg` (60 MB VOC Yolo v2) - requires 1 GB GPU-RAM: http://pjreddie.com/media/files/yolov2-tiny-voc.weights[m
+[32m +* `yolo9000.cfg` (186 MB Yolo9000-model) - requires 4 GB GPU-RAM: http://pjreddie.com/media/files/yolo9000.weights[m
+[32m +[m
+[32m +</details>[m
+[32m +[m
+[32m +Put it near compiled: darknet.exe[m
+[32m +[m
+[32m +You can get cfg-files by path: `darknet/cfg/`[m
+[32m +[m
+[32m +### Requirements[m
+[32m +[m
+[32m +* Windows or Linux[m
+[32m +* **CMake >= 3.8** for modern CUDA support: https://cmake.org/download/[m
+[32m +* **CUDA 10.0**: https://developer.nvidia.com/cuda-toolkit-archive (on Linux do [Post-installation Actions](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html#post-installation-actions))[m
+[32m +* **OpenCV >= 2.4**: use your preferred package manager (brew, apt), build from source using [vcpkg](https://github.com/Microsoft/vcpkg) or download from [OpenCV official site](https://opencv.org/releases.html) (on Windows set system variable `OpenCV_DIR` = `C:\opencv\build` - where are the `include` and `x64` folders [image](https://user-images.githubusercontent.com/4096485/53249516-5130f480-36c9-11e9-8238-a6e82e48c6f2.png))[m
+[32m +* **cuDNN >= 7.0 for CUDA 10.0** https://developer.nvidia.com/rdp/cudnn-archive (on **Linux** copy `cudnn.h`,`libcudnn.so`... as desribed here https://docs.nvidia.com/deeplearning/sdk/cudnn-install/index.html#installlinux-tar , on **Windows** copy `cudnn.h`,`cudnn64_7.dll`, `cudnn64_7.lib` as desribed here https://docs.nvidia.com/deeplearning/sdk/cudnn-install/index.html#installwindows )[m
+[32m +* **GPU with CC >= 3.0**: https://en.wikipedia.org/wiki/CUDA#GPUs_supported[m
+[32m +* on Linux **GCC or Clang**, on Windows **MSVC 2015/2017/2019** https://visualstudio.microsoft.com/thank-you-downloading-visual-studio/?sku=Community[m
+[32m +[m
+[32m +[m
+[32m +#### Yolo v3 in other frameworks[m
+[32m +[m
+[32m +* **TensorFlow:** convert `yolov3.weights`/`cfg` files to `yolov3.ckpt`/`pb/meta`: by using [mystic123](https://github.com/mystic123/tensorflow-yolo-v3) or [jinyu121](https://github.com/jinyu121/DW2TF) projects, and [TensorFlow-lite](https://www.tensorflow.org/lite/guide/get_started#2_convert_the_model_format)[m
+[32m +* **Intel OpenVINO 2019 R1:** (Myriad X / USB Neural Compute Stick / Arria FPGA): read this [manual](https://software.intel.com/en-us/articles/OpenVINO-Using-TensorFlow#converting-a-darknet-yolo-model)[m
+[32m +* **OpenCV-dnn** the fastest implementation for CPU (x86/ARM-Android), OpenCV can be compiled with [OpenVINO-backend](https://github.com/opencv/opencv/wiki/Intel's-Deep-Learning-Inference-Engine-backend) for running on (Myriad X / USB Neural Compute Stick / Arria FPGA), use `yolov3.weights`/`cfg` with: [C++ example](https://github.com/opencv/opencv/blob/8c25a8eb7b10fb50cda323ee6bec68aa1a9ce43c/samples/dnn/object_detection.cpp#L192-L221) or [Python example](https://github.com/opencv/opencv/blob/8c25a8eb7b10fb50cda323ee6bec68aa1a9ce43c/samples/dnn/object_detection.py#L129-L150)[m
+[32m +* **PyTorch > ONNX > CoreML > iOS** how to convert cfg/weights-files to pt-file: [ultralytics/yolov3](https://github.com/ultralytics/yolov3#darknet-conversion) and [iOS App](https://itunes.apple.com/app/id1452689527)[m
+[32m +* **TensorRT** for YOLOv3 (-70% faster inference): [Yolo is natively supported in DeepStream 4.0](https://news.developer.nvidia.com/deepstream-sdk-4-now-available/)[m
+[32m +* **TVM** - compilation of deep learning models (Keras, MXNet, PyTorch, Tensorflow, CoreML, DarkNet) into minimum deployable modules on diverse hardware backends (CPUs, GPUs, FPGA, and specialized accelerators): https://tvm.ai/about[m
+[32m +* **Netron** - Visualizer for neural networks: https://github.com/lutzroeder/netron[m
+[32m +[m
+[32m +#### Datasets[m
+[32m +[m
+[32m +* MS COCO: use `./scripts/get_coco_dataset.sh` to get labeled MS COCO detection dataset[m
+[32m +* OpenImages: use `python ./scripts/get_openimages_dataset.py` for labeling train detection dataset[m
+[32m +* Pascal VOC: use `python ./scripts/voc_label.py` for lab

@@ -198,6 +198,8 @@ convolutional_layer parse_convolutional(list *options, size_params params)
     batch=params.batch;
     if(!(h && w && c)) error("Layer before convolutional layer must output image.");
     int batch_normalize = option_find_int_quiet(options, "batch_normalize", 0);
+    int cbn = option_find_int_quiet(options, "cbn", 0);
+    if (cbn) batch_normalize = 2;
     int binary = option_find_int_quiet(options, "binary", 0);
     int xnor = option_find_int_quiet(options, "xnor", 0);
     int use_bin_output = option_find_int_quiet(options, "bin_output", 0);
@@ -356,7 +358,7 @@ int *parse_yolo_mask(char *a, int *num)
         for (i = 0; i < len; ++i) {
             if (a[i] == ',') ++n;
         }
-        mask = (int*)calloc(n, sizeof(int));
+        mask = (int*)xcalloc(n, sizeof(int));
         for (i = 0; i < n; ++i) {
             int val = atoi(a);
             mask[i] = val;
@@ -411,6 +413,7 @@ layer parse_yolo(list *options, size_params params)
 
     l.label_smooth_eps = option_find_float_quiet(options, "label_smooth_eps", 0.0f);
     l.scale_x_y = option_find_float_quiet(options, "scale_x_y", 1);
+    l.max_delta = option_find_float_quiet(options, "max_delta", FLT_MAX);   // set 10
     l.iou_normalizer = option_find_float_quiet(options, "iou_normalizer", 0.75);
     l.cls_normalizer = option_find_float_quiet(options, "cls_normalizer", 1);
     char *iou_loss = option_find_str_quiet(options, "iou_loss", "mse");   //  "iou");
@@ -422,6 +425,16 @@ layer parse_yolo(list *options, size_params params)
     else l.iou_loss = IOU;
     fprintf(stderr, "[yolo] params: iou loss: %s (%d), iou_norm: %2.2f, cls_norm: %2.2f, scale_x_y: %2.2f\n",
         iou_loss, l.iou_loss, l.iou_normalizer, l.cls_normalizer, l.scale_x_y);
+
+    char *iou_thresh_kind_str = option_find_str_quiet(options, "iou_thresh_kind", "iou");
+    if (strcmp(iou_thresh_kind_str, "iou") == 0) l.iou_thresh_kind = IOU;
+    else if (strcmp(iou_thresh_kind_str, "giou") == 0) l.iou_thresh_kind = GIOU;
+    else if (strcmp(iou_thresh_kind_str, "diou") == 0) l.iou_thresh_kind = DIOU;
+    else if (strcmp(iou_thresh_kind_str, "ciou") == 0) l.iou_thresh_kind = CIOU;
+    else {
+        fprintf(stderr, " Wrong iou_thresh_kind = %s \n", iou_thresh_kind_str);
+        l.iou_thresh_kind = IOU;
+    }
 
     l.beta_nms = option_find_float_quiet(options, "beta_nms", 0.6);
     char *nms_kind = option_find_str_quiet(options, "nms_kind", "default");
@@ -506,6 +519,7 @@ layer parse_gaussian_yolo(list *options, size_params params) // Gaussian_YOLOv3
 
     l.label_smooth_eps = option_find_float_quiet(options, "label_smooth_eps", 0.0f);
     l.scale_x_y = option_find_float_quiet(options, "scale_x_y", 1);
+    l.max_delta = option_find_float_quiet(options, "max_delta", FLT_MAX);   // set 10
     l.uc_normalizer = option_find_float_quiet(options, "uc_normalizer", 1.0);
     l.iou_normalizer = option_find_float_quiet(options, "iou_normalizer", 0.75);
     l.cls_normalizer = option_find_float_quiet(options, "cls_normalizer", 1.0);
@@ -516,6 +530,16 @@ layer parse_gaussian_yolo(list *options, size_params params) // Gaussian_YOLOv3
     else if (strcmp(iou_loss, "diou") == 0) l.iou_loss = DIOU;
     else if (strcmp(iou_loss, "ciou") == 0) l.iou_loss = CIOU;
     else l.iou_loss = IOU;
+
+    char *iou_thresh_kind_str = option_find_str_quiet(options, "iou_thresh_kind", "iou");
+    if (strcmp(iou_thresh_kind_str, "iou") == 0) l.iou_thresh_kind = IOU;
+    else if (strcmp(iou_thresh_kind_str, "giou") == 0) l.iou_thresh_kind = GIOU;
+    else if (strcmp(iou_thresh_kind_str, "diou") == 0) l.iou_thresh_kind = DIOU;
+    else if (strcmp(iou_thresh_kind_str, "ciou") == 0) l.iou_thresh_kind = CIOU;
+    else {
+        fprintf(stderr, " Wrong iou_thresh_kind = %s \n", iou_thresh_kind_str);
+        l.iou_thresh_kind = IOU;
+    }
 
     l.beta_nms = option_find_float_quiet(options, "beta_nms", 0.6);
     char *nms_kind = option_find_str_quiet(options, "nms_kind", "default");
@@ -959,16 +983,16 @@ layer parse_upsample(list *options, size_params params, network net)
 route_layer parse_route(list *options, size_params params)
 {
     char *l = option_find(options, "layers");
-    int len = strlen(l);
     if(!l) error("Route Layer must specify input layers");
+    int len = strlen(l);
     int n = 1;
     int i;
     for(i = 0; i < len; ++i){
         if (l[i] == ',') ++n;
     }
 
-    int* layers = (int*)calloc(n, sizeof(int));
-    int* sizes = (int*)calloc(n, sizeof(int));
+    int* layers = (int*)xcalloc(n, sizeof(int));
+    int* sizes = (int*)xcalloc(n, sizeof(int));
     for(i = 0; i < n; ++i){
         int index = atoi(l);
         l = strchr(l, ',')+1;
@@ -993,6 +1017,7 @@ route_layer parse_route(list *options, size_params params)
         if(next.out_w == first.out_w && next.out_h == first.out_h){
             layer.out_c += next.out_c;
         }else{
+            fprintf(stderr, " The width and height of the input layers are different. \n");
             layer.out_h = layer.out_w = layer.out_c = 0;
         }
     }
@@ -1049,6 +1074,10 @@ void parse_net_options(list *options, network *net)
     net->batch *= net->time_steps;
     net->subdivisions = subdivs;
 
+    *net->seen = 0;
+    *net->cur_iteration = 0;
+    net->loss_scale = option_find_float_quiet(options, "loss_scale", 1);
+    net->dynamic_minibatch = option_find_int_quiet(options, "dynamic_minibatch", 0);
     net->optimized_memory = option_find_int_quiet(options, "optimized_memory", 0);
     net->workspace_size_limit = (size_t)1024*1024 * option_find_float_quiet(options, "workspace_size_limit_MB", 1024);  // 1024 MB by default
 
@@ -1067,6 +1096,7 @@ void parse_net_options(list *options, network *net)
     net->min_crop = option_find_int_quiet(options, "min_crop",net->w);
     net->flip = option_find_int_quiet(options, "flip", 1);
     net->blur = option_find_int_quiet(options, "blur", 0);
+    net->gaussian_noise = option_find_int_quiet(options, "gaussian_noise", 0);
     net->mixup = option_find_int_quiet(options, "mixup", 0);
     int cutmix = option_find_int_quiet(options, "cutmix", 0);
     int mosaic = option_find_int_quiet(options, "mosaic", 0);
@@ -1076,6 +1106,8 @@ void parse_net_options(list *options, network *net)
     net->letter_box = option_find_int_quiet(options, "letter_box", 0);
     net->label_smooth_eps = option_find_float_quiet(options, "label_smooth_eps", 0.0f);
     net->resize_step = option_find_float_quiet(options, "resize_step", 32);
+    net->attention = option_find_int_quiet(options, "attention", 0);
+    net->adversarial_lr = option_find_float_quiet(options, "adversarial_lr", 0);
 
     net->angle = option_find_float_quiet(options, "angle", 0);
     net->aspect = option_find_float_quiet(options, "aspect", 1);
@@ -1089,15 +1121,17 @@ void parse_net_options(list *options, network *net)
     char *policy_s = option_find_str(options, "policy", "constant");
     net->policy = get_policy(policy_s);
     net->burn_in = option_find_int_quiet(options, "burn_in", 0);
-#ifdef CUDNN_HALF
+#ifdef GPU
     if (net->gpu_index >= 0) {
         int compute_capability = get_gpu_compute_capability(net->gpu_index);
-        if (get_gpu_compute_capability(net->gpu_index) >= 700) net->cudnn_half = 1;
+#ifdef CUDNN_HALF
+        if (compute_capability >= 700) net->cudnn_half = 1;
         else net->cudnn_half = 0;
+#endif// CUDNN_HALF
         fprintf(stderr, " compute_capability = %d, cudnn_half = %d \n", compute_capability, net->cudnn_half);
     }
     else fprintf(stderr, " GPU isn't used \n");
-#endif
+#endif// GPU
     if(net->policy == STEP){
         net->step = option_find_int(options, "step", 1);
         net->scale = option_find_float(options, "scale", 1);
@@ -1114,9 +1148,9 @@ void parse_net_options(list *options, network *net)
             for (i = 0; i < len; ++i) {
                 if (l[i] == ',') ++n;
             }
-            int* steps = (int*)calloc(n, sizeof(int));
-            float* scales = (float*)calloc(n, sizeof(float));
-            float* seq_scales = (float*)calloc(n, sizeof(float));
+            int* steps = (int*)xcalloc(n, sizeof(int));
+            float* scales = (float*)xcalloc(n, sizeof(float));
+            float* seq_scales = (float*)xcalloc(n, sizeof(float));
             for (i = 0; i < n; ++i) {
                 float scale = 1.0;
                 if (p) {
@@ -1154,6 +1188,39 @@ int is_network(section *s)
 {
     return (strcmp(s->type, "[net]")==0
             || strcmp(s->type, "[network]")==0);
+}
+
+void set_train_only_bn(network net)
+{
+    int train_only_bn = 0;
+    int i;
+    for (i = net.n - 1; i >= 0; --i) {
+        if (net.layers[i].train_only_bn) train_only_bn = net.layers[i].train_only_bn;  // set l.train_only_bn for all previous layers
+        if (train_only_bn) {
+            net.layers[i].train_only_bn = train_only_bn;
+
+            if (net.layers[i].type == CONV_LSTM) {
+                net.layers[i].wf->train_only_bn = train_only_bn;
+                net.layers[i].wi->train_only_bn = train_only_bn;
+                net.layers[i].wg->train_only_bn = train_only_bn;
+                net.layers[i].wo->train_only_bn = train_only_bn;
+                net.layers[i].uf->train_only_bn = train_only_bn;
+                net.layers[i].ui->train_only_bn = train_only_bn;
+                net.layers[i].ug->train_only_bn = train_only_bn;
+                net.layers[i].uo->train_only_bn = train_only_bn;
+                if (net.layers[i].peephole) {
+                    net.layers[i].vf->train_only_bn = train_only_bn;
+                    net.layers[i].vi->train_only_bn = train_only_bn;
+                    net.layers[i].vo->train_only_bn = train_only_bn;
+                }
+            }
+            else if (net.layers[i].type == CRNN) {
+                net.layers[i].input_layer->train_only_bn = train_only_bn;
+                net.layers[i].self_layer->train_only_bn = train_only_bn;
+                net.layers[i].output_layer->train_only_bn = train_only_bn;
+            }
+        }
+    }
 }
 
 network parse_network_cfg(char *filename)
@@ -1197,12 +1264,18 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
     params.batch = net.batch;
     params.time_steps = net.time_steps;
     params.net = net;
-    printf("batch = %d, time_steps = %d, train = %d \n", net.batch, net.time_steps, params.train);
+    printf("mini_batch = %d, batch = %d, time_steps = %d, train = %d \n", net.batch, net.batch * net.subdivisions, net.time_steps, params.train);
 
+    int avg_outputs = 0;
+    int avg_counter = 0;
     float bflops = 0;
     size_t workspace_size = 0;
     size_t max_inputs = 0;
     size_t max_outputs = 0;
+    int receptive_w = 1, receptive_h = 1;
+    int receptive_w_scale = 1, receptive_h_scale = 1;
+    const int show_receptive_field = option_find_float_quiet(options, "show_receptive_field", 0);
+
     n = n->next;
     int count = 0;
     free_section(s);
@@ -1302,7 +1375,7 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
 #endif
         }
         else if (lt == EMPTY) {
-            layer empty_layer;
+            layer empty_layer = {(LAYER_TYPE)0};
             empty_layer.out_w = params.w;
             empty_layer.out_h = params.h;
             empty_layer.out_c = params.c;
@@ -1315,6 +1388,58 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
 #endif
         }else{
             fprintf(stderr, "Type not recognized: %s\n", s->type);
+        }
+
+        // calculate receptive field
+        if(show_receptive_field)
+        {
+            int dilation = max_val_cmp(1, l.dilation);
+            int stride = max_val_cmp(1, l.stride);
+            int size = max_val_cmp(1, l.size);
+
+            if (l.type == UPSAMPLE || (l.type == REORG))
+            {
+
+                l.receptive_w = receptive_w;
+                l.receptive_h = receptive_h;
+                l.receptive_w_scale = receptive_w_scale = receptive_w_scale / stride;
+                l.receptive_h_scale = receptive_h_scale = receptive_h_scale / stride;
+
+            }
+            else {
+                if (l.type == ROUTE) {
+                    receptive_w = receptive_h = receptive_w_scale = receptive_h_scale = 0;
+                    int k;
+                    for (k = 0; k < l.n; ++k) {
+                        layer route_l = net.layers[l.input_layers[k]];
+                        receptive_w = max_val_cmp(receptive_w, route_l.receptive_w);
+                        receptive_h = max_val_cmp(receptive_h, route_l.receptive_h);
+                        receptive_w_scale = max_val_cmp(receptive_w_scale, route_l.receptive_w_scale);
+                        receptive_h_scale = max_val_cmp(receptive_h_scale, route_l.receptive_h_scale);
+                    }
+                }
+                else
+                {
+                    int increase_receptive = size + (dilation - 1) * 2 - 1;// stride;
+                    increase_receptive = max_val_cmp(0, increase_receptive);
+
+                    receptive_w += increase_receptive * receptive_w_scale;
+                    receptive_h += increase_receptive * receptive_h_scale;
+                    receptive_w_scale *= stride;
+                    receptive_h_scale *= stride;
+                }
+
+                l.receptive_w = receptive_w;
+                l.receptive_h = receptive_h;
+                l.receptive_w_scale = receptive_w_scale;
+                l.receptive_h_scale = receptive_h_scale;
+            }
+            //printf(" size = %d, dilation = %d, stride = %d, receptive_w = %d, receptive_w_scale = %d - ", size, dilation, stride, receptive_w, receptive_w_scale);
+
+            int cur_receptive_w = receptive_w;
+            int cur_receptive_h = receptive_h;
+
+            fprintf(stderr, "%4d - receptive field: %d x %d \n", count, cur_receptive_w, cur_receptive_h);
         }
 
 #ifdef GPU
@@ -1352,8 +1477,13 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
         }
 #endif // GPU
 
+        l.clip = option_find_float_quiet(options, "clip", 0);
+        l.dynamic_minibatch = net.dynamic_minibatch;
         l.onlyforward = option_find_int_quiet(options, "onlyforward", 0);
+        l.dont_update = option_find_int_quiet(options, "dont_update", 0);
+        l.burnin_update = option_find_int_quiet(options, "burnin_update", 0);
         l.stopbackward = option_find_int_quiet(options, "stopbackward", 0);
+        l.train_only_bn = option_find_int_quiet(options, "train_only_bn", 0);
         l.dontload = option_find_int_quiet(options, "dontload", 0);
         l.dontloadscales = option_find_int_quiet(options, "dontloadscales", 0);
         l.learning_rate_scale = option_find_float_quiet(options, "learning_rate", 1);
@@ -1380,6 +1510,11 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
             }
         }
         if (l.bflops > 0) bflops += l.bflops;
+
+        if (l.w > 1 && l.h > 1) {
+            avg_outputs += l.outputs;
+            avg_counter++;
+        }
     }
     free_list(sections);
 
@@ -1421,9 +1556,13 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
     }
 #endif
 
+    set_train_only_bn(net); // set l.train_only_bn for all required layers
+
     net.outputs = get_network_output_size(net);
     net.output = get_network_output(net);
+    avg_outputs = avg_outputs / avg_counter;
     fprintf(stderr, "Total BFLOPS %5.3f \n", bflops);
+    fprintf(stderr, "avg_outputs = %d \n", avg_outputs);
 #ifdef GPU
     get_cuda_stream();
     get_cuda_memcpy_stream();
@@ -1434,7 +1573,7 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
         if (cudaSuccess == cudaHostAlloc(&net.input_pinned_cpu, size * sizeof(float), cudaHostRegisterMapped)) net.input_pinned_cpu_flag = 1;
         else {
             cudaGetLastError(); // reset CUDA-error
-            net.input_pinned_cpu = (float*)calloc(size, sizeof(float));
+            net.input_pinned_cpu = (float*)xcalloc(size, sizeof(float));
         }
 
         // pre-allocate memory for inference on Tensor Cores (fp16)
@@ -1449,12 +1588,12 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
             net.workspace = cuda_make_array(0, workspace_size / sizeof(float) + 1);
         }
         else {
-            net.workspace = (float*)calloc(1, workspace_size);
+            net.workspace = (float*)xcalloc(1, workspace_size);
         }
     }
 #else
         if (workspace_size) {
-            net.workspace = (float*)calloc(1, workspace_size);
+            net.workspace = (float*)xcalloc(1, workspace_size);
         }
 #endif
 
@@ -1481,7 +1620,7 @@ list *read_cfg(char *filename)
         strip(line);
         switch(line[0]){
             case '[':
-                current = (section*)malloc(sizeof(section));
+                current = (section*)xmalloc(sizeof(section));
                 list_insert(sections, current);
                 current->options = make_list();
                 current->type = line;
@@ -1540,11 +1679,17 @@ void save_shortcut_weights(layer l, FILE *fp)
 #ifdef GPU
     if (gpu_index >= 0) {
         pull_shortcut_layer(l);
+        printf("\n pull_shortcut_layer \n");
     }
 #endif
+    int i;
+    for (i = 0; i < l.nweights; ++i) printf(" %f, ", l.weight_updates[i]);
+    printf(" l.nweights = %d - update \n", l.nweights);
+    for (i = 0; i < l.nweights; ++i) printf(" %f, ", l.weights[i]);
+    printf(" l.nweights = %d \n\n", l.nweights);
+
     int num = l.nweights;
     fwrite(l.weights, sizeof(float), num, fp);
-
 }
 
 void save_convolutional_weights(layer l, FILE *fp)
@@ -1618,6 +1763,7 @@ void save_weights_upto(network net, char *filename, int cutoff)
     fwrite(&major, sizeof(int), 1, fp);
     fwrite(&minor, sizeof(int), 1, fp);
     fwrite(&revision, sizeof(int), 1, fp);
+    (*net.seen) = get_current_iteration(net) * net.batch * net.subdivisions; // remove this line, when you will save to weights-file both: seen & cur_iteration
     fwrite(net.seen, sizeof(uint64_t), 1, fp);
 
     int i;
@@ -1690,7 +1836,7 @@ void save_weights(network net, char *filename)
 
 void transpose_matrix(float *a, int rows, int cols)
 {
-    float* transpose = (float*)calloc(rows * cols, sizeof(float));
+    float* transpose = (float*)xcalloc(rows * cols, sizeof(float));
     int x, y;
     for(x = 0; x < rows; ++x){
         for(y = 0; y < cols; ++y){
@@ -1822,14 +1968,12 @@ void load_convolutional_weights(layer l, FILE *fp)
 
 void load_shortcut_weights(layer l, FILE *fp)
 {
-    if (l.binary) {
-        //load_convolutional_weights_binary(l, fp);
-        //return;
-    }
     int num = l.nweights;
     int read_bytes;
     read_bytes = fread(l.weights, sizeof(float), num, fp);
     if (read_bytes > 0 && read_bytes < num) printf("\n Warning: Unexpected end of wights-file! l.weights - l.index = %d \n", l.index);
+    //for (int i = 0; i < l.nweights; ++i) printf(" %f, ", l.weights[i]);
+    //printf(" read_bytes = %d \n\n", read_bytes);
 #ifdef GPU
     if (gpu_index >= 0) {
         push_shortcut_layer(l);
@@ -1856,17 +2000,19 @@ void load_weights_upto(network *net, char *filename, int cutoff)
     fread(&minor, sizeof(int), 1, fp);
     fread(&revision, sizeof(int), 1, fp);
     if ((major * 10 + minor) >= 2) {
-        printf("\n seen 64 \n");
+        printf("\n seen 64");
         uint64_t iseen = 0;
         fread(&iseen, sizeof(uint64_t), 1, fp);
         *net->seen = iseen;
     }
     else {
-        printf("\n seen 32 \n");
+        printf("\n seen 32");
         uint32_t iseen = 0;
         fread(&iseen, sizeof(uint32_t), 1, fp);
         *net->seen = iseen;
     }
+    *net->cur_iteration = get_current_batch(*net);
+    printf(", trained: %.0f K-images (%.0f Kilo-batches_64) \n", (float)(*net->seen / 1000), (float)(*net->seen / 64000));
     int transpose = (major > 1000) || (minor > 1000);
 
     int i;
@@ -1954,25 +2100,33 @@ void load_weights(network *net, char *filename)
 network *load_network_custom(char *cfg, char *weights, int clear, int batch)
 {
     printf(" Try to load cfg: %s, weights: %s, clear = %d \n", cfg, weights, clear);
-    network* net = (network*)calloc(1, sizeof(network));
+    network* net = (network*)xcalloc(1, sizeof(network));
     *net = parse_network_cfg_custom(cfg, batch, 1);
     if (weights && weights[0] != 0) {
+        printf(" Try to load weights: %s \n", weights);
         load_weights(net, weights);
     }
-    //fuse_conv_batchnorm(*net);
-    if (clear) (*net->seen) = 0;
+    fuse_conv_batchnorm(*net);
+    if (clear) {
+        (*net->seen) = 0;
+        (*net->cur_iteration) = 0;
+    }
     return net;
 }
 
 // load network & get batch size from cfg-file
 network *load_network(char *cfg, char *weights, int clear)
 {
-    printf(" Try to load cfg: %s, weights: %s, clear = %d \n", cfg, weights, clear);
-    network* net = (network*)calloc(1, sizeof(network));
+    printf(" Try to load cfg: %s, clear = %d \n", cfg, clear);
+    network* net = (network*)xcalloc(1, sizeof(network));
     *net = parse_network_cfg(cfg);
     if (weights && weights[0] != 0) {
+        printf(" Try to load weights: %s \n", weights);
         load_weights(net, weights);
     }
-    if (clear) (*net->seen) = 0;
+    if (clear) {
+        (*net->seen) = 0;
+        (*net->cur_iteration) = 0;
+    }
     return net;
 }

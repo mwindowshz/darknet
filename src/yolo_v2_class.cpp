@@ -1,5 +1,6 @@
 #include "darknet.h"
 #include "yolo_v2_class.hpp"
+
 #include "network.h"
 
 extern "C" {
@@ -16,7 +17,7 @@ extern "C" {
 }
 //#include <sys/time.h>
 
-
+#include <vector>
 #include <iostream>
 #include <algorithm>
 #include <cmath>
