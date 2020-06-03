@@ -381,7 +381,7 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
 			fp = fopen(buff, "a");
 			if (fp != NULL)
 			{
-				fprintf(fp, "%d: %f, %f avg, %f rate, %lf seconds, %d images\n", i, loss, avg_loss, get_current_rate(net), sec(clock() - time), i*imgs);
+				fprintf(fp, "%d: %f, %f avg, %f rate, %lf seconds, %d images\n", iteration, loss, avg_loss, get_current_rate(net), sec(clock() - time), iteration*imgs);
 				fclose(fp);
 			}
         }
