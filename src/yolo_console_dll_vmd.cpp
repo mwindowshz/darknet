@@ -13,6 +13,13 @@
 
 //import "C:\temp\ProTrack\VmdComWrapper\Developer Folder\Dll and h Files\VmdComWrapper.tlb" no_namespace, named_guids
 #include "C:\temp\ProTrack\VmdComWrapper\Developer Folder\Dll and h Files\VmdComWrapper.h"
+#include <comutil.h> // #include for _bstr_t
+#ifdef DEBUG
+#pragma comment(lib, "comsuppwd.lib") // link with "comsuppw.lib" (or debug version: "comsuppwd.lib")
+#else
+#pragma comment(lib, "comsuppw.lib") // link with "comsuppw.lib" (or debug version: "comsuppwd.lib")
+#endif
+
 bool loopRead = true;
 
 // It makes sense only for video-Camera (not for video-File)
@@ -259,8 +266,8 @@ public:
     void send(T const& _obj) {
         T *new_ptr = new T;
         *new_ptr = _obj;
-        if (sync) {
-            while (a_ptr.load()) std::this_thread::sleep_for(std::chrono::milliseconds(3));
+        if (sync) {// dont overwrite data until it was read
+            while (a_ptr.load()) std::this_thread::sleep_for(std::chrono::milliseconds(3));   // load gets the data in the pointer, if it is not NULL, so we did not call recive to empty the pointer
         }
         std::unique_ptr<T> old_ptr(a_ptr.exchange(new_ptr));
     }
@@ -268,8 +275,8 @@ public:
     T receive() {
         std::unique_ptr<T> ptr;
         do {
-            while(!a_ptr.load()) std::this_thread::sleep_for(std::chrono::milliseconds(3));
-            ptr.reset(a_ptr.exchange(NULL));
+            while(!a_ptr.load()) std::this_thread::sleep_for(std::chrono::milliseconds(3));   // while no data wait, 
+            ptr.reset(a_ptr.exchange(NULL));  //if there is data take it, and empty a_ptr so Send() call would store new data 
         } while (!ptr);
         T obj = *ptr;
         return obj;
@@ -285,12 +292,16 @@ public:
 
 int main(int argc, char *argv[])
 {
-   
+    //bool perform_vmd = true;
+    bool display_dbg_windows = false;
+    bool vmd_draw = true;
+    bool draw_only_combined = false;
     
     std::string  names_file = "data/coco.names";
     std::string  cfg_file = "cfg/yolov3.cfg";
     std::string  weights_file = "yolov3.weights";
-    std::string filename;
+    std ::string filename;
+    std::string vmd_prm = "vmd.prm";
 
     if (argc > 4) {    //voc.names yolo-voc.cfg yolo-voc.weights test.mp4
         names_file = argv[1];
@@ -300,16 +311,20 @@ int main(int argc, char *argv[])
     }
     else if (argc > 1) filename = argv[1];
 
-    float const thresh = (argc > 5) ? std::stof(argv[5]) : 0.2;
+    if (argc > 5)
+        vmd_prm = argv[5];
+
+    float const thresh = (argc > 6) ? std::stof(argv[6]) : 0.2;
+   
      
     Detector detector(cfg_file, weights_file);
-    Detector detector2 ("D:\\YOLO\\Training\\v4\\yolov4.cfg"  ,"D:\\YOLO\\Training\\v4\\yolov4.weights");
-    //Detector detector2(cfg_file, weights_file);
+//    Detector detector2 ("D:\\YOLO\\Training\\v4\\yolov4.cfg"  ,"D:\\YOLO\\Training\\v4\\yolov4.weights");
+    Detector detector2(cfg_file, weights_file);
 
     auto obj_names = objects_names_from_file(names_file);
     std::string out_videofile = "result.avi";
     bool const save_output_videofile = false;   // true - for history
-    bool const send_network = false;        // true - for remote detection
+    bool const send_network = true;        // true - for remote detection
     bool const use_kalman_filter = false;   // true - for stationary camera
 
     bool detection_sync = true;             // true - for video-file
@@ -417,8 +432,9 @@ int main(int argc, char *argv[])
                 hr = CoCreateInstance(__uuidof(CStab), NULL, CLSCTX_INPROC_SERVER, __uuidof(ICStab), (void**)&pCstab);
                 hr = pCstab->QueryInterface(__uuidof(ICStab2), (void**)&pCstab2);
                 auto d = cur_frame.channels();
-                pCstab->UseParamFile(L"C:\\Temp\\protrack\\VmdComWrapper\\Apps\\vidstab.prm");
-                pCstab->UseParamFile(L"C:\\Temp\\dark_w_vmd\\vmd.prm");
+                _bstr_t prm = vmd_prm.c_str();
+                pCstab->UseParamFile(prm);
+
                hr =  pCstab->Init2(cur_frame.cols, cur_frame.rows, 0, cur_frame.channels() * 8, 1, 0, 1, 1, 0, 0, 0);
                pCstab->InitMotionDetection();
              //  pCstab->SetOpenDebugWindows(1);
@@ -527,9 +543,12 @@ int main(int argc, char *argv[])
                     
 
                     do {
-                        int dice_roll = distribution(generator);  // generates number in the range 1..6
-
+                        
+                     
                         detection_data = cap2Vmd.receive();
+
+                        //if (!perform_vmd && !detection_data.exit_flag) { Sleep(5); continue; } // if not to perfome vmd, then no need to continue, and pay attention to the exit flag
+                        
                         LONG res = -1;
                         int num = 0;
                         MovingObjectDataStructForIDL *vmdObjects = NULL;
@@ -541,9 +560,7 @@ int main(int argc, char *argv[])
                         current_vmd_fps = fps;
                         //fill rects
                         if (num > 0)
-                        {
-                      
-                          
+                        { 
                             for (int i = 0; i<num; i++)
                             {
                                 cv::Rect rect;
@@ -552,15 +569,12 @@ int main(int argc, char *argv[])
                                 rect.width = vmdObjects[i].right - vmdObjects[i].left;
                                 rect.height = vmdObjects[i].bottom - vmdObjects[i].top;
                                 detection_data.vmd_rects.push_back(rect);
-                                //rect.x
                             }
-                        }
-                       
-                      
+                        }             
+                        
+                        Vmd2Draw.send(detection_data);
 
-                                Vmd2Draw.send(detection_data);
-
-                                vmd2Combine.send(detection_data);
+                        vmd2Combine.send(detection_data);
 
                     }while (!detection_data.exit_flag);
                     std::cout << " t_vmd exit \n";
@@ -588,31 +602,59 @@ int main(int argc, char *argv[])
                     } while (!detection_data.exit_flag);
                     std::cout << " t_detect exit \n";
                 });
-                
+                if (t_combine.joinable()) t_combine.join();
                 t_combine = std::thread([&]()
                 {
+                    
                     /*** ideas
                         check if there is no box for last x frames. to avoid the need of reclassifing when there is only a blink in the yolo detection
 
                     */
+                    struct tracking_info
+                    {
+                        int  vmdId;
+                        bbox_t box;
+
+                    };
                     detection_data_t detection_data_detect;
                     detection_data_t detection_data_vmd;
-                    detection_data_t send_data;
+                    std::vector<tracking_info> tracking_data;
                     std::vector<cv::Rect> rects_further_analyze;
                     do
                     {
-
+                        
                         detection_data_detect = detect2Combine.receive();
-                        detection_data_vmd = vmd2Combine.receive();
-                        /*cv::Mat tempImg = detection_data_vmd.cap_frame;
-                        cv::Mat tempImg2 = detection_data_vmd.cap_frame;
-                        draw_boxes(tempImg2, detection_data_detect.result_vec, obj_names);*/
+                        if(vmd2Combine.is_object_present())  //avoid deadlock on exit. reason not clear
+                            detection_data_vmd = vmd2Combine.receive();
+                        else {std::this_thread::sleep_for(std::chrono::milliseconds(3));  continue;  }
 
+                        if (display_dbg_windows)
+                        {
+                            cv::Mat detectionImg = detection_data_detect.cap_frame.clone();
+                            cv::Mat vmdImg = detection_data_vmd.cap_frame.clone();
+                            cv::Mat combImg = detection_data_vmd.cap_frame.clone();
+
+                          /*  draw_boxes(detectionImg, detection_data_detect.result_vec, obj_names);
+                            cv::putText(detectionImg, std::to_string(detection_data_detect.frame_id), cv::Point(0, 30), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.5, cv::Scalar(50, 50, 0), 1);
+
+                            draw_vmd(vmdImg, detection_data_vmd.vmd_rects);
+                            cv::putText(vmdImg, std::to_string(detection_data_vmd.frame_id), cv::Point(0, 30), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.5, cv::Scalar(50, 50, 0), 1);
+*/
+                            draw_boxes(combImg, detection_data_detect.result_vec, obj_names);
+                            draw_vmd(combImg, detection_data_vmd.vmd_rects);
+
+                           // cv::imshow("comb_detections_input", detectionImg);
+                           // cv::imshow("comb_vmd_input", vmdImg);
+                            cv::imshow("comb", combImg);
+                        }
+                        rects_further_analyze.clear();
+                        //check overlap yolo and vmd, save only rects without overlap.
                         for (auto &vmd : detection_data_vmd.vmd_rects)
                         {
+                            bool draw = false;
                             bool intersects = false;
                             float iou = 0.0;
-                            int id = -1;
+                            int id = 0;
                             int detectedBox = -1;
                             for (auto &box : detection_data_detect.result_vec)
                             {
@@ -623,25 +665,39 @@ int main(int argc, char *argv[])
                                 if (intersects)
                                     detectedBox = id;
                                 id++;
-                                //cv::rectangle(tempImg, box_rect, cv::Scalar(0, 255, 0));
+                                if (draw)
+                                {
+                                    auto img = detection_data_detect.cap_frame.clone();
+                                    cv::rectangle(img, vmd, cv::Scalar(0, 0, 255), 2);
+                                    cv::rectangle(img, box_rect, cv::Scalar(255, 0, 0), 2);
+                                   
+                                    std::string str = intersects ? "true" : "false";
+                                    cv::putText(img, str, cv::Point(0, 30), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.5, cv::Scalar(50, 50, 0), 1);
 
+                                    imshow("intersect", img);
+                                    cv::waitKey(-1);
+
+                                }
 
                             }
                             if (detectedBox == -1)  // there was no intercection
+                            {
                                 rects_further_analyze.push_back(vmd);
+                            }
 
-                           // cv::rectangle(tempImg, vmd, (0, 0, 255));
-
-                           // imshow("tempImg", tempImg);
-                           // imshow("tempImg2", tempImg2);
-                            //cv::waitKey(2000);
                         }
 
-                        //now we have a list of vmd rects that have no intercection with darknet bbox
-                        //run on cropped
-                        imshow("full", detection_data_vmd.cap_frame);
-                        cv::waitKey(100);
-                        //run on enlarged object
+                        //now we have a list of vmd rects that have no intercection with darknet bbox run on cropped
+                        if (display_dbg_windows)
+                        { //draw further to investigate vmds and the boxes we already have. to check that intersection was currect
+                            cv::Mat combImg1 = detection_data_vmd.cap_frame.clone();
+                            draw_boxes(combImg1, detection_data_detect.result_vec, obj_names);
+                            draw_vmd(combImg1, rects_further_analyze);
+                            cv::imshow("further", combImg1);
+                            cv::waitKey(-1);
+
+                        }
+                        //extract image around vmd and run detector2 on enlarged object
                        for (auto &vmd : rects_further_analyze)
                        {
                             auto width = detection_data_vmd.cap_frame.cols;
@@ -665,8 +721,8 @@ int main(int argc, char *argv[])
                             float xRatio = (float)dst.cols / img.cols;// / dst.cols;
                             float yRatio = (float)dst.rows / img.rows;// / dst.rows;
                             
-                            cv::Rect dst_r(vmd_padding*xRatio, vmd_padding*yRatio, vmd.width*xRatio, vmd.height*yRatio);
-                            //cv::rectangle(dst, dst_r, (255, 0, 0));
+                            cv::Rect vmd_on_elnlarged(vmd_padding*xRatio, vmd_padding*yRatio, vmd.width*xRatio, vmd.height*yRatio);
+                            //cv::rectangle(dst, vmd_on_elnlarged, (255, 0, 0));
 
                             //to test -- add sharpen to image, or other image effect to see if we get better results
                             // sharpen image using "unsharp mask" algorithm
@@ -675,47 +731,48 @@ int main(int argc, char *argv[])
                             cv::addWeighted(frame, 1.5, image, -0.5, 0, image); 
 */
 
-                            auto boxes = detector2.detect(dst);
-                            if(boxes.size() >0)
+                            auto boxes = detector2.detect(dst,thresh);
+                            if(display_dbg_windows && boxes.size() >0)
                                 draw_boxes(dst, boxes, obj_names);
                             for (auto &box : boxes)
                             {
                             //check if theres an overlap, if yes take box info
-                                if ((dst_r & cv::Rect(box.x, box.y, box.w, box.h)).area() > 0)
+                                if ((vmd_on_elnlarged & cv::Rect(box.x, box.y, box.w, box.h)).area() > 0)
                                 {
-                                    cv::rectangle(dst, dst_r, cv::Scalar(222, 43, 55));
+                                   // cv::rectangle(dst, vmd_on_elnlarged, cv::Scalar(222, 43, 55));
 
                                     cv::Rect boxOnCutout(box.x/xRatio, box.y/yRatio, box.w/xRatio, box.h/yRatio);
-                                    cv::rectangle(img, boxOnCutout, (33, 44, 230));
+                                    //cv::rectangle(img, boxOnCutout, (33, 44, 230));
 
                                     cv::Rect boxOnOriginal(cutOutRect.x + boxOnCutout.x, cutOutRect.y + boxOnCutout.y,
                                         boxOnCutout.width, boxOnCutout.height);
-                                    cv::rectangle(detection_data_vmd.cap_frame, boxOnOriginal, (200, 200, 0));
+                                   // cv::rectangle(detection_data_vmd.cap_frame, boxOnOriginal, (200, 200, 0));
                                     //generate results vec on full image, and (send to be drawn at end of t_combine
                                     box.x = boxOnOriginal.x;
                                     box.y = boxOnOriginal.y;
                                     box.w = boxOnOriginal.width;
                                     box.h = boxOnOriginal.height;
-                                    detection_data_detect.additional_found_objects.push_back(box);
-
-                                    
+                                    detection_data_detect.additional_found_objects.push_back(box);                                    
                                 }
                             }
-                            //cv::rectangle(dst, dst_r, (0, 0, 255));
-                            imshow("full",detection_data_vmd.cap_frame);
-                            imshow("img", img);
-                            imshow("crop", dst);
-                            cv::waitKey(100);
-
-
+                            if (display_dbg_windows)
+                            {
+                                //cv::rectangle(dst, vmd_on_elnlarged, (0, 0, 255));
+                               // imshow("full", detection_data_vmd.cap_frame);
+                               // imshow("img", img);
+                                imshow("crop", dst);
+                                cv::waitKey(100);
+                            }             
 
                         }
                        //we finished, don't save for next analize
+                       detection_data_detect.vmd_rects = rects_further_analyze; // pass vmd rects that have no overlap to be displayed
                        rects_further_analyze.clear();
                        //combine2Draw - send generated results to be drawn
+                       
                        combine2Draw.send(detection_data_detect);
                     }while (!detection_data_detect.exit_flag);
-
+                    std::cout << " t_combine exit \n";
                 });
                 // draw rectangles (and track objects)
                 t_draw = std::thread([&]()
@@ -772,16 +829,25 @@ int main(int argc, char *argv[])
                             }
 
                         }
+                        else
+                        {
+                            float time_sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - last_time).count();
+
+                            if (time_sec > 1)// std::chrono::duration_cast<std::chrono::milliseconds> )
+                                old_vmd_result_vec.clear();
+
+                            last_time = std::chrono::steady_clock::now();
+                        }
                         
                         if (combine2Draw.is_object_present())
                         {
                             detection_data_t combined_detection_data;
                             combined_detection_data = combine2Draw.receive();
+                            if(!vmd_draw)
+                                detection_data.vmd_rects = combined_detection_data.vmd_rects;   
                             if (combined_detection_data.additional_found_objects.size() > 0)
                             {
-                                old_additional_boxes = combined_detection_data.additional_found_objects;
-
-                                
+                                old_additional_boxes = combined_detection_data.additional_found_objects;                                
                             }
                             else
                             {
@@ -844,12 +910,15 @@ int main(int argc, char *argv[])
                         //large_preview.set(draw_frame, result_vec);
                         draw_boxes(draw_frame, result_vec, obj_names, current_fps_det, current_fps_cap, current_vmd_fps);
 
-                        //draw vmd
-                        if (detection_data.vmd_rects.size() > 0)
-                            draw_vmd(draw_frame, detection_data.vmd_rects);
-                        else // draw previos detections, so we don't have flickering of boxes.
-                            draw_vmd(draw_frame, old_vmd_result_vec);
+                        cv::putText(draw_frame, std::to_string(detection_data.frame_id), cv::Point(0, 30), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.5, cv::Scalar(50, 50, 0), 1);
 
+                        //draw vmd
+                        if (vmd_draw && detection_data.vmd_rects.size() > 0)
+                            draw_vmd(draw_frame, detection_data.vmd_rects);
+                        else if (vmd_draw) // draw previos detections, so we don't have flickering of boxes.
+                            draw_vmd(draw_frame, old_vmd_result_vec);
+                        if (draw_only_combined)
+                            draw_vmd(draw_frame, detection_data.vmd_rects);
                         //show_console_result(result_vec, obj_names, detection_data.frame_id);
                         //large_preview.draw(draw_frame);
                         //small_preview.draw(draw_frame, true);
@@ -920,10 +989,16 @@ int main(int argc, char *argv[])
                     //    cv::putText(draw_frame, "extrapolate", cv::Point2f(10, 40), cv::FONT_HERSHEY_COMPLEX_SMALL, 1.0, cv::Scalar(50, 50, 0), 2);
                     //}
 
-                    cv::imshow("AI Detections", draw_frame);
+                    cv::imshow("Detections", draw_frame);
                    // cv::imshow("vmd ", draw_vmd_frame);
                     int key = cv::waitKey(3);    // 3 or 16ms
                     if (key == 'f') show_small_boxes = !show_small_boxes;
+                    if (key == 'd')  display_dbg_windows = !display_dbg_windows;
+                  
+                    if (key == 'v') {
+                        vmd_draw = !vmd_draw;
+                        draw_only_combined = !draw_only_combined;
+                    }
                     if (key == 'p') while (true) if (cv::waitKey(100) == 'p') break;
                     //if (key == 'e') extrapolate_flag = !extrapolate_flag;
                     if (key == 27) { exit_flag = true;}
