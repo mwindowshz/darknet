@@ -22,6 +22,16 @@
 
 bool loopRead = true;
 
+bool timePassed(std::chrono::steady_clock::time_point last_time, float timePassedInSec)
+{
+    float time_sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - last_time).count();
+    //float miliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_time).count();
+    //last_time = std::chrono::steady_clock::now(); -- bug 
+    if (time_sec > timePassedInSec)
+        return true;
+    else
+        return false;
+}
 // It makes sense only for video-Camera (not for video-File)
 // To use - uncomment the following line. Optical-flow is supported only by OpenCV 3.x - 4.x
 //#define TRACK_OPTFLOW
@@ -187,6 +197,11 @@ std::vector<bbox_t> get_3d_coordinates(std::vector<bbox_t> bbox_vect, cv::Mat xy
 #endif    // USE_CMAKE_LIBS
 #endif    // CV_VERSION_EPOCH
 
+struct vmd_detection {
+    cv::Rect rect;
+    int objId;
+};
+
 
 void draw_boxes(cv::Mat mat_img, std::vector<bbox_t> result_vec, std::vector<std::string> obj_names,
     int current_det_fps = -1, int current_cap_fps = -1, float fps_vmd = -1)
@@ -226,12 +241,14 @@ void draw_boxes(cv::Mat mat_img, std::vector<bbox_t> result_vec, std::vector<std
         putText(mat_img, fps_str, cv::Point2f(10, 20), cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cv::Scalar(50, 255, 0), 2);
     }
 }
-
-void  draw_vmd(cv::Mat mat_img, std::vector<cv::Rect> vmd_rects)
+//draw vmd rect and obj id
+void  draw_vmd(cv::Mat mat_img, std::vector<vmd_detection> vmd_rects)
 {
-    for (auto rect : vmd_rects)
+    for (auto vmd : vmd_rects)
     {
-        cv::rectangle(mat_img, rect, cv::Scalar(0, 0, 255), 2);
+        cv::rectangle(mat_img, vmd.rect, cv::Scalar(0, 0, 255), 2);
+        auto sObjId = std::to_string(vmd.objId);
+        cv::putText(mat_img,sObjId, cv::Point(vmd.rect.x,vmd.rect.y+ vmd.rect.height-5), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(0, 0, 255), 1);
     }
     
 }
@@ -318,8 +335,8 @@ int main(int argc, char *argv[])
    
      
     Detector detector(cfg_file, weights_file);
-//    Detector detector2 ("D:\\YOLO\\Training\\v4\\yolov4.cfg"  ,"D:\\YOLO\\Training\\v4\\yolov4.weights");
-    Detector detector2(cfg_file, weights_file);
+    Detector detector2 ("D:\\YOLO\\Training\\v4\\yolov4.cfg"  ,"D:\\YOLO\\Training\\v4\\yolov4.weights");
+//    Detector detector2(cfg_file, weights_file);
 
     auto obj_names = objects_names_from_file(names_file);
     std::string out_videofile = "result.avi";
@@ -439,7 +456,7 @@ int main(int argc, char *argv[])
                pCstab->InitMotionDetection();
              //  pCstab->SetOpenDebugWindows(1);
                
-
+              
                 struct detection_data_t {
                     cv::Mat cap_frame;
                     std::shared_ptr<image_t> det_image;
@@ -451,7 +468,7 @@ int main(int argc, char *argv[])
                     bool exit_flag;
                     cv::Mat zed_cloud;
                     std::queue<cv::Mat> track_optflow_queue;
-                    std::vector<cv::Rect> vmd_rects;
+                    std::vector<vmd_detection> vmd_rects;
                     std::vector<bbox_t> additional_found_objects;
                     detection_data_t() : exit_flag(false), new_detection(false) {}
                 };
@@ -568,7 +585,8 @@ int main(int argc, char *argv[])
                                 rect.y = vmdObjects[i].top;
                                 rect.width = vmdObjects[i].right - vmdObjects[i].left;
                                 rect.height = vmdObjects[i].bottom - vmdObjects[i].top;
-                                detection_data.vmd_rects.push_back(rect);
+                                vmd_detection detection; detection.rect = rect; detection.objId = vmdObjects[i].global_object_id;
+                                detection_data.vmd_rects.push_back(detection);
                             }
                         }             
                         
@@ -619,7 +637,7 @@ int main(int argc, char *argv[])
                     detection_data_t detection_data_detect;
                     detection_data_t detection_data_vmd;
                     std::vector<tracking_info> tracking_data;
-                    std::vector<cv::Rect> rects_further_analyze;
+                    std::vector<vmd_detection> rects_further_analyze;
                     do
                     {
                         
@@ -628,7 +646,7 @@ int main(int argc, char *argv[])
                             detection_data_vmd = vmd2Combine.receive();
                         else {std::this_thread::sleep_for(std::chrono::milliseconds(3));  continue;  }
 
-                        if (display_dbg_windows)
+                        if (0)//display_dbg_windows)
                         {
                             cv::Mat detectionImg = detection_data_detect.cap_frame.clone();
                             cv::Mat vmdImg = detection_data_vmd.cap_frame.clone();
@@ -661,21 +679,21 @@ int main(int argc, char *argv[])
                                 //check oberlap percentage of vmd on each box, and save best box
                                     //if no box, save vmd in list to further analyze
                                 cv::Rect box_rect(box.x, box.y, box.w, box.h);
-                                intersects = ((vmd & box_rect).area() > 0);
+                                intersects = ((vmd.rect & box_rect).area() > 0);
                                 if (intersects)
                                     detectedBox = id;
                                 id++;
                                 if (draw)
                                 {
                                     auto img = detection_data_detect.cap_frame.clone();
-                                    cv::rectangle(img, vmd, cv::Scalar(0, 0, 255), 2);
+                                    cv::rectangle(img, vmd.rect, cv::Scalar(0, 0, 255), 2);
                                     cv::rectangle(img, box_rect, cv::Scalar(255, 0, 0), 2);
                                    
                                     std::string str = intersects ? "true" : "false";
                                     cv::putText(img, str, cv::Point(0, 30), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.5, cv::Scalar(50, 50, 0), 1);
 
                                     imshow("intersect", img);
-                                    cv::waitKey(-1);
+                                    cv::waitKey(1);
 
                                 }
 
@@ -694,12 +712,21 @@ int main(int argc, char *argv[])
                             draw_boxes(combImg1, detection_data_detect.result_vec, obj_names);
                             draw_vmd(combImg1, rects_further_analyze);
                             cv::imshow("further", combImg1);
-                            cv::waitKey(-1);
+                            cv::waitKey(1);
 
                         }
+                        //createcopy of further rects, so for each box, we would check overlap with list, maybe one box, would cover several, this would speed the process, without the need of runing detector2 several times
+                        std::vector<vmd_detection> copy_further(rects_further_analyze);
+                        std::vector<int> ids_to_skip;
+                        int id = 0;
                         //extract image around vmd and run detector2 on enlarged object
-                       for (auto &vmd : rects_further_analyze)
+                       for (auto &vmd_det : rects_further_analyze )
                        {
+                           auto vmd = vmd_det.rect;
+                           if (std::find(ids_to_skip.begin(), ids_to_skip.end(), id) != ids_to_skip.end())
+                           {
+                               id++;   continue;//skip this vmd rect, it has an overlap with the box we already found
+                           }
                             auto width = detection_data_vmd.cap_frame.cols;
                             auto height = detection_data_vmd.cap_frame.rows;
                             int vmd_padding = 80;  //pixels to add around vmd detection when we extract part of image
@@ -752,8 +779,23 @@ int main(int argc, char *argv[])
                                     box.y = boxOnOriginal.y;
                                     box.w = boxOnOriginal.width;
                                     box.h = boxOnOriginal.height;
-                                    detection_data_detect.additional_found_objects.push_back(box);                                    
-                                }
+                                    detection_data_detect.additional_found_objects.push_back(box);
+
+                                    //check overlap of box, on other vmd rects waiting to be analyzed.
+                                    int i = 0;
+                                    for (auto &vmd : rects_further_analyze)
+                                    {
+                                        if ((vmd.rect & boxOnOriginal).area() > 0)
+                                        {
+                                            //we have intersection,
+                                            if (i != id)
+                                                ids_to_skip.push_back(i);
+                                            
+                                        }
+                                        i++;
+                                    }
+                                }                              
+
                             }
                             if (display_dbg_windows)
                             {
@@ -761,9 +803,9 @@ int main(int argc, char *argv[])
                                // imshow("full", detection_data_vmd.cap_frame);
                                // imshow("img", img);
                                 imshow("crop", dst);
-                                cv::waitKey(100);
+                                cv::waitKey(1);
                             }             
-
+                            id++;
                         }
                        //we finished, don't save for next analize
                        detection_data_detect.vmd_rects = rects_further_analyze; // pass vmd rects that have no overlap to be displayed
@@ -779,9 +821,10 @@ int main(int argc, char *argv[])
                 {
                     std::queue<cv::Mat> track_optflow_queue;
                     detection_data_t detection_data;
-                    std::vector<cv::Rect> old_vmd_result_vec;
+                    std::vector<vmd_detection> old_vmd_result_vec;
                     std::vector<bbox_t> old_additional_boxes;
-                    std::chrono::steady_clock::time_point last_time = std::chrono::steady_clock::now();
+                    std::chrono::steady_clock::time_point last_time_vmd = std::chrono::steady_clock::now();
+                    std::chrono::steady_clock::time_point last_time_combine = std::chrono::steady_clock::now();
 
 
                     do {
@@ -806,7 +849,7 @@ int main(int argc, char *argv[])
                                 detection_data.result_vec = old_result_vec;
                             }
                         }
-                        if (Vmd2Draw.is_object_present())
+                        if (!draw_only_combined &&  Vmd2Draw.is_object_present())
                         {
                             detection_data_t vmd_detection_data;
                             vmd_detection_data = Vmd2Draw.receive();
@@ -815,51 +858,56 @@ int main(int argc, char *argv[])
 
                             if (detection_data.vmd_rects.size() > 0) //save detections for smooth draw 
                             {
-                                old_vmd_result_vec = detection_data.vmd_rects;                      
-                               
+                                old_vmd_result_vec = detection_data.vmd_rects;
+                                last_time_vmd = std::chrono::steady_clock::now();
                             }
-                            else
+                            else if (timePassed(last_time_vmd,1))
                             {
-                                float time_sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - last_time).count();
-
-                                if (time_sec > 1)// std::chrono::duration_cast<std::chrono::milliseconds> )
                                     old_vmd_result_vec.clear();
-
-                                last_time = std::chrono::steady_clock::now();
                             }
-
                         }
-                        else
-                        {
-                            float time_sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - last_time).count();
-
-                            if (time_sec > 1)// std::chrono::duration_cast<std::chrono::milliseconds> )
-                                old_vmd_result_vec.clear();
-
-                            last_time = std::chrono::steady_clock::now();
+                        else if (timePassed(last_time_vmd, 1)) // no vmd remove old vmd drawing.
+                        {                            
+                            old_vmd_result_vec.clear();
                         }
                         
                         if (combine2Draw.is_object_present())
                         {
+                            
+                            //TODO
+                            //1. draw only vmd from what is combined.
+                            //2. option to draw added detections,
+                                //3. logic of tracking, and conferming added detection. need also logic for regular detections
                             detection_data_t combined_detection_data;
                             combined_detection_data = combine2Draw.receive();
-                            if(!vmd_draw)
-                                detection_data.vmd_rects = combined_detection_data.vmd_rects;   
+                            if(!vmd_draw) // we overwrite vmd rects and only show combined rects.
+                                old_vmd_result_vec = combined_detection_data.vmd_rects;
                             if (combined_detection_data.additional_found_objects.size() > 0)
                             {
-                                old_additional_boxes = combined_detection_data.additional_found_objects;                                
+                                last_time_combine = std::chrono::steady_clock::now();
+                                old_additional_boxes = combined_detection_data.additional_found_objects;
+
+                                if (display_dbg_windows)
+                                {
+                                    draw_boxes(combined_detection_data.cap_frame, combined_detection_data.additional_found_objects, obj_names);
+                                    imshow("combinded_added", combined_detection_data.cap_frame);
+                                    cv::waitKey(1);
+                                }
                             }
-                            else
+                            else if (timePassed(last_time_combine, 1))
                             {
-                                float time_sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - last_time).count();
-
-                                if (time_sec > 1)// std::chrono::duration_cast<std::chrono::milliseconds> )
-                                    old_additional_boxes.clear();
-
-                                last_time = std::chrono::steady_clock::now();
+                                old_additional_boxes.clear();
                             }
-
+                            
                         }
+                        else if (timePassed(last_time_combine, 1))// no new combinded remove them after time.
+                        {                           
+                                old_additional_boxes.clear();
+                                if (draw_only_combined)
+                                    old_vmd_result_vec.clear();
+                        }
+                        //debug draw old additional boxes, to understad what is stainig on the image.
+
                         //copy additional boxes to be drawn
                         for (auto &box : old_additional_boxes)
                         {
@@ -918,7 +966,7 @@ int main(int argc, char *argv[])
                         else if (vmd_draw) // draw previos detections, so we don't have flickering of boxes.
                             draw_vmd(draw_frame, old_vmd_result_vec);
                         if (draw_only_combined)
-                            draw_vmd(draw_frame, detection_data.vmd_rects);
+                            draw_vmd(draw_frame, old_vmd_result_vec);
                         //show_console_result(result_vec, obj_names, detection_data.frame_id);
                         //large_preview.draw(draw_frame);
                         //small_preview.draw(draw_frame, true);
@@ -966,7 +1014,7 @@ int main(int argc, char *argv[])
                     std::cout << " t_network exit \n";
                 });
 
-
+                cv::namedWindow("Detections", cv::WINDOW_NORMAL); // make window resizable
                 // show detection
                 detection_data_t detection_data;
                 do {
