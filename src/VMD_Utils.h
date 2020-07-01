@@ -57,12 +57,12 @@ public:
         //highest number of classification for a class
         //highest score for classification calss
         auto times_classifed = info.times;
-        auto highScoreId = std::max_element(info.classification_scores.begin(), info.classification_scores.end());
-        auto hightimesId = std::max_element(info.classification_times.begin(), info.classification_times.end());
+        auto highScore = std::max_element(info.classification_scores.begin(), info.classification_scores.end());
+        auto hightimes = std::max_element(info.classification_times.begin(), info.classification_times.end());
         //add some logic if needed
 
         
-       int classid = std::distance(info.classification_scores.begin(),highScoreId);
+       int classid = std::distance(info.classification_scores.begin(),highScore);
         return classid;// classid;
     }
 };
