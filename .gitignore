@@ -70,3 +70,5 @@ uselib_track
 darknet
 kmeansiou
 vcpkg/
+out/build/x64-Debug/.cmake/api/v1/query/client-MicrosoftVS/query.json
+out/build/x64-Debug/VSInheritEnvironments.txt
