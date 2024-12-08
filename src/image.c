@@ -13,15 +13,12 @@
 
 #ifndef STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include <stb_image.h>
 #endif
 #ifndef STB_IMAGE_WRITE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include <stb_image_write.h>
 #endif
-
-extern int check_mistakes;
-//int windows = 0;
 
 float colors[6][3] = { {1,0,1}, {0,0,1},{0,1,1},{0,1,0},{1,1,0},{1,0,0} };
 
@@ -133,7 +130,7 @@ image get_label_v3(image **characters, char *string, int size)
         label = n;
         ++string;
     }
-    image b = border_image(label, label.h*.25);
+    image b = border_image(label, label.h*.05);
     free_image(label);
     return b;
 }
@@ -150,6 +147,25 @@ void draw_label(image a, int r, int c, image label, const float *rgb)
             for(k = 0; k < label.c; ++k){
                 float val = get_pixel(label, i, j, k);
                 set_pixel(a, i+c, j+r, k, rgb[k] * val);
+            }
+        }
+    }
+}
+
+void draw_weighted_label(image a, int r, int c, image label, const float *rgb, const float alpha)
+{
+    int w = label.w;
+    int h = label.h;
+    if (r - h >= 0) r = r - h;
+
+    int i, j, k;
+    for (j = 0; j < h && j + r < a.h; ++j) {
+        for (i = 0; i < w && i + c < a.w; ++i) {
+            for (k = 0; k < label.c; ++k) {
+                float val1 = get_pixel(label, i, j, k);
+                float val2 = get_pixel(a, i + c, j + r, k);
+                float val_dst = val1 * rgb[k] * alpha + val2 * (1 - alpha);
+                set_pixel(a, i + c, j + r, k, val_dst);
             }
         }
     }
@@ -261,6 +277,19 @@ image **load_alphabet()
     return alphabets;
 }
 
+void free_alphabet(image **alphabet)
+{
+    int i, j;
+    const int nsize = 8;
+    for (j = 0; j < nsize; ++j) {
+        for (i = 32; i < 127; ++i) {
+            free_image(alphabet[j][i]);
+        }
+        free(alphabet[j]);
+    }
+    free(alphabet);
+}
+
 
 
 // Creates array of detections with prob > thresh and fills best_class for them
@@ -347,7 +376,7 @@ void draw_detections_v3(image im, detection *dets, int num, float thresh, char *
     // image output
     qsort(selected_detections, selected_detections_num, sizeof(*selected_detections), compare_by_probs);
     for (i = 0; i < selected_detections_num; ++i) {
-            int width = im.h * .006;
+            int width = im.h * .002;
             if (width < 1)
                 width = 1;
 
@@ -415,6 +444,9 @@ void draw_detections_v3(image im, detection *dets, int num, float thresh, char *
             if (alphabet) {
                 char labelstr[4096] = { 0 };
                 strcat(labelstr, names[selected_detections[i].best_class]);
+                char prob_str[10];
+                sprintf(prob_str, ": %.2f", selected_detections[i].det.prob[selected_detections[i].best_class]);
+                strcat(labelstr, prob_str);
                 int j;
                 for (j = 0; j < classes; ++j) {
                     if (selected_detections[i].det.prob[j] > thresh && j != selected_detections[i].best_class) {
@@ -422,8 +454,9 @@ void draw_detections_v3(image im, detection *dets, int num, float thresh, char *
                         strcat(labelstr, names[j]);
                     }
                 }
-                image label = get_label_v3(alphabet, labelstr, (im.h*.03));
-                draw_label(im, top + width, left, label, rgb);
+                image label = get_label_v3(alphabet, labelstr, (im.h*.02));
+                //draw_label(im, top + width, left, label, rgb);
+                draw_weighted_label(im, top + width, left, label, rgb, 0.7);
                 free_image(label);
             }
             if (selected_detections[i].det.mask) {
@@ -682,7 +715,7 @@ void show_image(image p, const char *name)
 #ifdef OPENCV
     show_image_cv(p, name);
 #else
-    fprintf(stderr, "Not compiled with OpenCV, saving to %s.png instead\n", name);
+    fprintf(stderr, "Not compiled with OpenCV, saving to %s.jpg instead\n", name);
     save_image(p, name);
 #endif  // OPENCV
 }
@@ -1328,7 +1361,7 @@ void make_image_red(image im)
     }
 }
 
-image make_attention_image(int img_size, float *original_delta_cpu, float *original_input_cpu, int w, int h, int c)
+image make_attention_image(int img_size, float *original_delta_cpu, float *original_input_cpu, int w, int h, int c, float alpha)
 {
     image attention_img;
     attention_img.w = w;
@@ -1356,7 +1389,7 @@ image make_attention_image(int img_size, float *original_delta_cpu, float *origi
     image resized = resize_image(attention_img, w / 4, h / 4);
     attention_img = resize_image(resized, w, h);
     free_image(resized);
-    for (k = 0; k < img_size; ++k) attention_img.data[k] += original_input_cpu[k];
+    for (k = 0; k < img_size; ++k) attention_img.data[k] = attention_img.data[k]*alpha + (1-alpha)*original_input_cpu[k];
 
     //normalize_image(attention_img);
     //show_image(attention_img, "delta");
@@ -1475,12 +1508,7 @@ image load_image_stb(char *filename, int channels)
         char *new_line = "\n";
         fwrite(new_line, sizeof(char), strlen(new_line), fw);
         fclose(fw);
-        if (check_mistakes) {
-            printf("\n Error in load_image_stb() \n");
-            getchar();
-        }
         return make_image(10, 10, 3);
-        //exit(EXIT_FAILURE);
     }
     if(channels) c = channels;
     int i,j,k;
@@ -1500,7 +1528,7 @@ image load_image_stb(char *filename, int channels)
 
 image load_image_stb_resize(char *filename, int w, int h, int c)
 {
-    image out = load_image_stb(filename, c);    // without OpenCV
+    image out = load_image_stb(filename, c);
 
     if ((h && w) && (h != out.h || w != out.w)) {
         image resized = resize_image(out, w, h);
@@ -1513,10 +1541,9 @@ image load_image_stb_resize(char *filename, int w, int h, int c)
 image load_image(char *filename, int w, int h, int c)
 {
 #ifdef OPENCV
-    //image out = load_image_stb(filename, c);
     image out = load_image_cv(filename, c);
 #else
-    image out = load_image_stb(filename, c);    // without OpenCV
+    image out = load_image_stb(filename, c);
 #endif  // OPENCV
 
     if((h && w) && (h != out.h || w != out.w)){
