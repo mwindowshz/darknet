@@ -14,7 +14,7 @@
 
 
 //import "C:\temp\ProTrack\VmdComWrapper\Developer Folder\Dll and h Files\VmdComWrapper.tlb" no_namespace, named_guids
-#include "C:\temp\ProTrack\VmdComWrapper\Developer Folder\Dll and h Files\VmdComWrapper.h"
+#include "VmdComWrapper.h"
 #include <comutil.h> // #include for _bstr_t
 #ifdef DEBUG
 #pragma comment(lib, "comsuppwd.lib") // link with "comsuppw.lib" (or debug version: "comsuppwd.lib")
@@ -471,7 +471,8 @@ int main(int argc, char *argv[])
 
                hr =  pCstab->Init2(cur_frame.cols, cur_frame.rows, 0, cur_frame.channels() * 8, 1, 0, 1, 1, 0, 0, 0);
                pCstab->InitMotionDetection();
-
+               if (hr == S_OK)
+                   std::cout << "vmd comwrapper opend with " << prm << "prm file" << std::endl;
                VMD_Utils vmdUtils(obj_names.size());
              //  pCstab->SetOpenDebugWindows(1);
                
