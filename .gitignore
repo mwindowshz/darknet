@@ -70,3 +70,4 @@ uselib_track
 darknet
 kmeansiou
 vcpkg/
+/build
