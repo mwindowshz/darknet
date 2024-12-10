@@ -10,7 +10,6 @@
 #include <mutex>         // std::mutex, std::unique_lock
 #include <cmath>
 
-
 // It makes sense only for video-Camera (not for video-File)
 // To use - uncomment the following line. Optical-flow is supported only by OpenCV 3.x - 4.x
 //#define TRACK_OPTFLOW
@@ -20,6 +19,7 @@
 //#define ZED_STEREO
 
 
+#include "IDetector.h"
 #include "yolo_v2_class.hpp"    // imported functions from DLL
 
 #ifdef OPENCV
