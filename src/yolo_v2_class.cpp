@@ -1,4 +1,6 @@
 #include "darknet.h"
+#include <vector>
+#include "IDetector.h"
 #include "yolo_v2_class.hpp"
 
 #include "network.h"
@@ -126,6 +128,9 @@ struct detector_gpu_t {
     int demo_index;
     unsigned int *track_id;
 };
+LIB_API Detector::Detector(const char* cfg_filename, const char* weight_filename, int gpu_id,  int batch_size)
+    :Detector(std::string(cfg_filename), std::string(weight_filename), gpu_id,batch_size)
+{}
 
 LIB_API Detector::Detector(std::string cfg_filename, std::string weight_filename, int gpu_id, int batch_size)
     : cur_gpu_id(gpu_id)
@@ -222,7 +227,13 @@ LIB_API std::vector<bbox_t> Detector::detect(std::string image_filename, float t
     *image_ptr = load_image(image_filename);
     return detect(*image_ptr, thresh, use_mean);
 }
-
+LIB_API int Detector::detectResArray(image_t img, float thresh, bool use_mean, bbox_t** pBoxes)
+{
+    auto boxes = detect(img, thresh, use_mean);
+    *pBoxes = new bbox_t[boxes.size()];
+    std::copy(begin(boxes), end(boxes), *pBoxes);
+    return boxes.size();
+}
 static image load_image_stb(char *filename, int channels)
 {
     int w, h, c;
@@ -499,4 +510,20 @@ void *Detector::get_cuda_context()
 #else   // GPU
     return NULL;
 #endif  // GPU
+}
+std::mutex m_mtx;
+std::mutex m_mtx2;
+IDetector* GetDetectorPtr(const char* cfgFile, const char* weightsFile)
+{
+    std::lock_guard<std::mutex> lock(m_mtx);
+    static Detector ptr(cfgFile, weightsFile);
+    
+    return &ptr;
+}
+IDetector* GetDetectorPtr2(const char* cfgFile, const char* weightsFile)
+{
+    std::lock_guard<std::mutex> lock(m_mtx2);
+    static Detector ptr(cfgFile, weightsFile);
+    
+    return &ptr;
 }

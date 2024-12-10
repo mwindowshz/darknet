@@ -19,21 +19,21 @@
 
 #define C_SHARP_MAX_OBJECTS 1000
 
-struct bbox_t {
-    unsigned int x, y, w, h;       // (x,y) - top-left corner, (w, h) - width & height of bounded box
-    float prob;                    // confidence - probability that the object was found correctly
-    unsigned int obj_id;           // class of object - from range [0, classes-1]
-    unsigned int track_id;         // tracking id for video (0 - untracked, 1 - inf - tracked object)
-    unsigned int frames_counter;   // counter of frames on which the object was detected
-    float x_3d, y_3d, z_3d;        // center of object (in Meters) if ZED 3D Camera is used
-};
-
-struct image_t {
-    int h;                        // height
-    int w;                        // width
-    int c;                        // number of chanels (3 - for RGB)
-    float *data;                  // pointer to the image data
-};
+//struct bbox_t {
+//    unsigned int x, y, w, h;       // (x,y) - top-left corner, (w, h) - width & height of bounded box
+//    float prob;                    // confidence - probability that the object was found correctly
+//    unsigned int obj_id;           // class of object - from range [0, classes-1]
+//    unsigned int track_id;         // tracking id for video (0 - untracked, 1 - inf - tracked object)
+//    unsigned int frames_counter;   // counter of frames on which the object was detected
+//    float x_3d, y_3d, z_3d;        // center of object (in Meters) if ZED 3D Camera is used
+//};
+//
+//struct image_t {
+//    int h;                        // height
+//    int w;                        // width
+//    int c;                        // number of chanels (3 - for RGB)
+//    float *data;                  // pointer to the image data
+//};
 
 struct bbox_t_container {
     bbox_t candidates[C_SHARP_MAX_OBJECTS];
@@ -49,6 +49,7 @@ struct bbox_t_container {
 #include <sstream>
 #include <iostream>
 #include <cmath>
+#include <mutex>
 
 #ifdef OPENCV
 #include <opencv2/opencv.hpp>            // C++
@@ -67,7 +68,7 @@ extern "C" LIB_API bool built_with_cudnn();
 extern "C" LIB_API bool built_with_opencv();
 extern "C" LIB_API void send_json_custom(char const* send_buf, int port, int timeout);
 
-class Detector {
+class Detector :  public IDetector {
     std::shared_ptr<void> detector_gpu_ptr;
     std::deque<std::vector<bbox_t>> prev_bbox_vec_deque;
     std::string _cfg_filename, _weight_filename;
@@ -77,15 +78,17 @@ public:
     bool wait_stream;
 
     LIB_API Detector(std::string cfg_filename, std::string weight_filename, int gpu_id = 0, int batch_size = 1);
+    LIB_API Detector(const char* cfg_filename, const char* weight_filename, int gpu_id = 0, int batch_size = 1);
     LIB_API ~Detector();
 
     LIB_API std::vector<bbox_t> detect(std::string image_filename, float thresh = 0.2, bool use_mean = false);
     LIB_API std::vector<bbox_t> detect(image_t img, float thresh = 0.2, bool use_mean = false);
+    LIB_API int detectResArray(image_t img, float thresh = 0.2, bool use_mean = false, bbox_t** pBoxes = NULL);
     LIB_API std::vector<std::vector<bbox_t>> detectBatch(image_t img, int batch_size, int width, int height, float thresh, bool make_nms = true);
     static LIB_API image_t load_image(std::string image_filename);
     static LIB_API void free_image(image_t m);
-    LIB_API int get_net_width() const;
-    LIB_API int get_net_height() const;
+    LIB_API int get_net_width() const override;
+    LIB_API int get_net_height() const override;
     LIB_API int get_net_color_depth() const;
 
     LIB_API std::vector<bbox_t> tracking_id(std::vector<bbox_t> cur_bbox_vec, bool const change_history = true,
